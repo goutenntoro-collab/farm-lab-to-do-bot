@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Task System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --primary: #4A90E2; --primary-hover: #357ABD; --bg-grad-1: #f3f4f6; --bg-grad-2: #e5e7eb; --surface: rgba(255, 255, 255, 0.85); --text-main: #1f2937; --text-muted: #6b7280; --danger: #ef4444; --success: #10b981; --border: rgba(255,255,255,0.4); --shadow: 0 8px 32px rgba(31, 38, 135, 0.07); --radius: 16px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', 'Noto Sans JP', sans-serif; background: linear-gradient(135deg, var(--bg-grad-1), var(--bg-grad-2)); color: var(--text-main); min-height: 100vh; display: flex; flex-direction: column; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+        header { padding: 20px; background: var(--surface); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; display: flex; justify-content: space-between; align-items: center; }
+        h1 { font-size: 1.25rem; font-weight: 700; color: var(--primary); }
+        .tabs-wrapper { overflow-x: auto; white-space: nowrap; padding: 12px 20px; background: rgba(255,255,255,0.5); -ms-overflow-style: none; scrollbar-width: none; }
+        .tabs-wrapper::-webkit-scrollbar { display: none; }
+        .tab { display: inline-block; padding: 8px 20px; margin-right: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; font-weight: 600; font-size: 0.9rem; color: var(--text-muted); cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.03); transition: all 0.3s; }
+        .tab.active { background: var(--primary); color: white; box-shadow: 0 6px 16px rgba(74, 144, 226, 0.3); transform: translateY(-2px); }
+        main { padding: 20px; flex: 1; padding-bottom: 60px; }
+        .task-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); backdrop-filter: blur(8px); }
+        .task-card.completed { opacity: 0.6; }
+        .task-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+        .task-title-group { flex: 1; margin-right: 10px; }
+        .badge-group { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+        .category-select, .priority-select { font-size: 0.75rem; padding: 4px 10px; border-radius: 12px; border: 1px solid transparent; display: inline-block; font-weight: 700; cursor: pointer; outline: none; font-family: inherit; appearance: none; -webkit-appearance: none;}
+        .category-select { color: var(--primary); background: rgba(74, 144, 226, 0.1); }
+        .priority-high { color: #dc2626; background: rgba(220, 38, 38, 0.1); } 
+        .priority-normal { color: #059669; background: rgba(5, 150, 105, 0.1); } 
+        .priority-low { color: #6b7280; background: rgba(107, 114, 128, 0.1); } 
+        .task-name-input { width: 100%; font-size: 1.1rem; font-weight: 700; margin-bottom: 10px; color: #111827; background: transparent; border: 1px dashed transparent; border-bottom: 1px dashed #d1d5db; padding: 2px 0; outline: none; font-family: inherit; }
+        .task-name-input:focus { border-bottom: 2px solid var(--primary); }
+        .task-meta { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+        .meta-row { display: flex; align-items: center; font-size: 0.85rem; color: var(--text-muted); background: rgba(255,255,255,0.6); padding: 6px 10px; border-radius: 8px; border: 1px solid #e5e7eb; width: fit-content; }
+        .meta-label { font-weight: 600; margin-right: 8px; color: #4b5563; }
+        .meta-select, .meta-input { background: transparent; border: none; font-size: 0.85rem; color: var(--text-main); outline: none; cursor: pointer; font-family: inherit; }
+        .date-unassigned { color: var(--danger); font-weight: 600; margin-right: 4px; }
+        .status-badge { font-size: 0.8rem; padding: 4px 10px; border-radius: 12px; font-weight: 600; white-space: nowrap; }
+        .status-wip { background: #fef3c7; color: #b45309; }
+        .status-done { background: #d1fae5; color: #047857; }
+        .task-details { border-top: 1px dashed var(--border); padding-top: 16px; }
+        .detail-item { display: flex; align-items: flex-start; margin-bottom: 12px; padding: 12px; border-radius: 12px; background: rgba(255,255,255,0.5); border: 1px solid transparent; }
+        .detail-checkbox { margin-top: 2px; margin-right: 14px; width: 22px; height: 22px; accent-color: var(--success); cursor: pointer; }
+        .detail-content { flex: 1; font-size: 0.95rem; font-weight: 500; color: #374151; }
+        .detail-qty { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; background: rgba(0,0,0,0.05); display: inline-block; padding: 2px 8px; border-radius: 8px;}
+        .completed-text { text-decoration: line-through; color: var(--text-muted); }
+        #loader { position: fixed; inset: 0; background: rgba(255,255,255,0.9); display: flex; justify-content: center; align-items: center; flex-direction: column; z-index: 999; font-weight: 600; font-size: 1.1rem; color: var(--primary); }
+        .spinner { width: 40px; height: 40px; border: 4px solid rgba(74, 144, 226, 0.2); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+    <!-- LIFF SDK -->
+    <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+</head>
+<body>
+    <div id="loader"><div class="spinner"></div><div id="loadingText">LINEから起動中...</div></div>
+    <header>
+        <h1>Tasks</h1>
+        <div id="userInfo" style="font-size: 0.85rem; font-weight: 600; background: rgba(0,0,0,0.05); padding: 6px 12px; border-radius: 12px; display:flex; align-items:center; gap: 6px;">
+            👤 <span id="userNameSpan">未定</span>
+        </div>
+    </header>
+    <div class="tabs-wrapper" id="tabsContainer"></div>
+    <main id="tasksContainer"></main>
+
+    <script>
+        const LIFF_ID = "2009451114-QigIkuUk"; 
+        const API_URL = "https://script.google.com/macros/s/AKfycbwfgt3lSHpjJ4uaUglfg-Gc0TmxzNHn59QGxfMvSYw6jm-UeButRc7ahypGw_ZDJ5Dm/exec";
+        
+        let globalTasks = [];
+        let globalMembers = [];
+        let currentUserName = '未定';
+        let activeTab = 'すべて';
+
+        async function initializeApp() {
+            try {
+                await liff.init({ liffId: LIFF_ID });
+                if (!liff.isLoggedIn()) {
+                    liff.login();
+                    return;
+                }
+                const profile = await liff.getProfile();
+                document.getElementById('loadingText').textContent = 'データ取得中...';
+                
+                const url = `${API_URL}?action=getData&uid=${profile.userId}&displayName=${encodeURIComponent(profile.displayName)}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                onDataFetched(data);
+
+            } catch (err) {
+                document.getElementById('loader').innerHTML = `<div style="text-align:center; padding: 20px;"><span style="color:var(--danger)">初期化エラー: ${err.message}</span></div>`;
+            }
+        }
+
+        function onDataFetched(data) {
+            globalTasks = data.tasks || [];
+            globalMembers = data.members || [];
+            currentUserName = data.currentUserName || '未定';
+            document.getElementById('userNameSpan').textContent = currentUserName;
+            document.getElementById('loader').style.display = 'none';
+            renderTabs();
+            renderTasks();
+        }
+
+        function renderTabs() {
+            const container = document.getElementById('tabsContainer');
+            const tabs = ['すべて', '個人', '営業', '工場'];
+            let html = '';
+            tabs.forEach(tab => html += `<div class="tab ${activeTab === tab ? 'active' : ''}" onclick="switchTab('${tab}')">${tab}</div>`);
+            container.innerHTML = html;
+        }
+
+        function switchTab(tabName) { activeTab = tabName; renderTabs(); renderTasks(); }
+
+        function getPriorityScore(p) { return p === '今日中' ? 3 : (p === '時間あるとき' ? 1 : 2); }
+
+        function renderTasks() {
+            const container = document.getElementById('tasksContainer');
+            container.innerHTML = '';
+
+            let filteredTasks = globalTasks.filter(t => {
+                if (activeTab === 'すべて') return true;
+                if (activeTab === '個人') return t.assignee === currentUserName;
+                return t.category.includes(activeTab);
+            });
+
+            filteredTasks.sort((a, b) => {
+                if (a.status === '完了' && b.status !== '完了') return 1;
+                if (a.status !== '完了' && b.status === '完了') return -1;
+                const pA = getPriorityScore(a.priority), pB = getPriorityScore(b.priority);
+                if (pA !== pB) return pB - pA; 
+                const aHas = a.deadline && a.deadline !== '未定' && a.deadline !== '';
+                const bHas = b.deadline && b.deadline !== '未定' && b.deadline !== '';
+                if (aHas && !bHas) return -1;
+                if (!aHas && bHas) return 1;
+                if (aHas && bHas) return new Date(a.deadline) - new Date(b.deadline);
+                return 0;
+            });
+
+            if (filteredTasks.length === 0) {
+                container.innerHTML = `<div style="text-align:center; padding: 60px 20px; color: var(--text-muted); font-weight: 500;">タスクがありません 🎉</div>`;
+                return;
+            }
+
+            filteredTasks.forEach(task => {
+                const isCompleted = task.status === '完了';
+                const statusBadge = isCompleted ? `<span class="status-badge status-done">済</span>` : `<span class="status-badge status-wip">作業中</span>`;
+
+                let memOpts = `<option value="未定">未定</option>`;
+                globalMembers.forEach(m => memOpts += `<option value="${m.name}" ${m.name === task.assignee ? 'selected' : ''}>${m.name}</option>`);
+
+                const catOpts = [...new Set(['営業', '工場', 'その他', task.category])];
+                let catHtml = `<select class="category-select" onchange="updateField('${task.taskId}', 'category', this.value)">`;
+                catOpts.forEach(c => catHtml += `<option value="${c}" ${task.category === c ? 'selected' : ''}>${c}</option>`);
+                catHtml += `</select>`;
+
+                const pClass = task.priority === '今日中' ? 'priority-high' : (task.priority === '時間あるとき' ? 'priority-low' : 'priority-normal');
+                let priorityHtml = `<select class="priority-select ${pClass}" onchange="updateField('${task.taskId}', 'priority', this.value)">`;
+                ['今日中', '平常', '時間あるとき'].forEach(p => priorityHtml += `<option value="${p}" ${task.priority === p ? 'selected' : ''}>${p}</option>`);
+                priorityHtml += `</select>`;
+
+                let detailsHTML = '';
+                if (task.details && task.details.length > 0) {
+                    task.details.sort((a, b) => a.isDone === b.isDone ? 0 : (a.isDone ? 1 : -1));
+                    task.details.forEach(detail => {
+                        const isChecked = detail.isDone ? 'checked' : '';
+                        const textClass = detail.isDone ? 'completed-text' : '';
+                        const qtyHtml = detail.targetQuantity ? `<div class="detail-qty">目標: ${detail.targetQuantity}</div>` : '';
+                        detailsHTML += `
+                            <div class="detail-item">
+                                <input type="checkbox" class="detail-checkbox" onchange="toggleDetail('${task.taskId}', '${detail.detailId}', this.checked)" ${isChecked}>
+                                <div class="detail-content"><div class="${textClass}">${detail.content}</div>${qtyHtml}</div>
+                            </div>`;
+                    });
+                } else {
+                    detailsHTML = `<div style="font-size: 0.85rem; color: #9ca3af; padding: 8px;">詳細な作業内容はありません</div>`;
+                }
+
+                const dateVal = task.deadline && task.deadline !== '未定' ? task.deadline.substring(0,10) : '';
+                
+                const html = `
+                    <div class="task-card ${isCompleted ? 'completed' : ''}">
+                        <div class="task-header">
+                            <div class="task-title-group">
+                                <div class="badge-group">${catHtml}${priorityHtml}</div>
+                                <input type="text" class="task-name-input" value="${task.taskName}" onchange="updateField('${task.taskId}', 'taskName', this.value)">
+                                <div class="task-meta">
+                                    <div class="meta-row"><span class="meta-label">👤 担当:</span><select class="meta-select" onchange="updateField('${task.taskId}', 'assignee', this.value)">${memOpts}</select></div>
+                                    <div class="meta-row"><span class="meta-label">📅 予定:</span>${!dateVal ? `<span class="date-unassigned">未定</span>` : ''}<input type="date" class="meta-input" value="${dateVal}" onchange="updateField('${task.taskId}', 'deadline', this.value || '未定')"></div>
+                                </div>
+                            </div>
+                            <div class="task-status">${statusBadge}</div>
+                        </div>
+                        <div class="task-details">${detailsHTML}</div>
+                    </div>`;
+                container.insertAdjacentHTML('beforeend', html);
+            });
+        }
+
+        async function updateField(taskId, field, value) {
+            const task = globalTasks.find(t => t.taskId === taskId);
+            if (task) {
+                task[field] = value;
+                if (['assignee', 'category', 'deadline', 'priority'].includes(field)) setTimeout(renderTasks, 100);
+            }
+            try {
+                await fetch(`${API_URL}?action=updateField&taskId=${taskId}&field=${field}&value=${encodeURIComponent(value)}`);
+            } catch(e) { alert("更新エラー"); }
+        }
+
+        async function toggleDetail(taskId, detailId, isChecked) {
+            const task = globalTasks.find(t => t.taskId === taskId);
+            const detail = task.details.find(d => d.detailId === detailId);
+            if(detail) detail.isDone = isChecked;
+            const allDone = task.details.length > 0 && task.details.every(d => d.isDone);
+            task.status = allDone ? '完了' : '作業中';
+            renderTasks();
+            try {
+                await fetch(`${API_URL}?action=updateDetail&taskId=${taskId}&detailId=${detailId}&isDone=${isChecked}`);
+            } catch(e) { alert("更新エラー"); }
+        }
+
+        window.onload = initializeApp;
+    </script>
+</body>
+</html>
