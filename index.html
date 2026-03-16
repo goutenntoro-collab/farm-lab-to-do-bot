@@ -1,119 +1,116 @@
-        async function updateField(taskId, field, value) {
-            const task = globalTasks.find(t => t.taskId === taskId);
-            if (task) {
-                task[field] = value;
-                if (['assignee', 'category', 'deadline', 'priority'].includes(field)) {
-                    setTimeout(renderTasks, 100);
-                }
-            }
-            try {
-                await fetch(
-                    `${API_URL}?action=updateField&taskId=${taskId}&field=${field}&value=${encodeURIComponent(value)}`
-                );
-            } catch(e) {
-                alert("更新エラー");
-            }
+async function updateField(taskId, field, value) {
+    const task = globalTasks.find(t => t.taskId === taskId);
+    if (task) {
+        task[field] = value;
+        if (['assignee', 'category', 'deadline', 'priority'].includes(field)) {
+            setTimeout(renderTasks, 100);
         }
+    }
+    try {
+        await fetch(
+            `${API_URL}?action=updateField&taskId=${taskId}&field=${field}&value=${encodeURIComponent(value)}`
+        );
+    } catch(e) {
+        alert("更新エラー");
+    }
+}
 
-        async function toggleDetail(taskId, detailId, isChecked) {
-            const task = globalTasks.find(t => t.taskId === taskId);
-            const detail = task.details.find(d => d.detailId === detailId);
-            if(detail) detail.isDone = isChecked;
-            const allDone = task.details.length > 0 && task.details.every(d => d.isDone);
-            task.status = allDone ? '完了' : '作業中';
-            renderTasks();
-            try {
-                await fetch(
-                    `${API_URL}?action=updateDetail&taskId=${taskId}&detailId=${detailId}&isDone=${isChecked}`
-                );
-            } catch(e) {
-                alert("更新エラー");
-            }
-        }
+async function toggleDetail(taskId, detailId, isChecked) {
+    const task = globalTasks.find(t => t.taskId === taskId);
+    const detail = task.details.find(d => d.detailId === detailId);
+    if(detail) detail.isDone = isChecked;
+    const allDone = task.details.length > 0 && task.details.every(d => d.isDone);
+    task.status = allDone ? '完了' : '作業中';
+    renderTasks();
+    try {
+        await fetch(
+            `${API_URL}?action=updateDetail&taskId=${taskId}&detailId=${detailId}&isDone=${isChecked}`
+        );
+    } catch(e) {
+        alert("更新エラー");
+    }
+}
 
-        // ★ 子タスク（明細）の内容を書き換える
-        async function updateDetailContent(taskId, detailId, newContent) {
-            const task = globalTasks.find(t => t.taskId === taskId);
-            if (!task) return;
-            const detail = task.details.find(d => d.detailId === detailId);
-            if (!detail) return;
+// ★ 子タスク（明細）の内容を書き換える
+async function updateDetailContent(taskId, detailId, newContent) {
+    const task = globalTasks.find(t => t.taskId === taskId);
+    if (!task) return;
+    const detail = task.details.find(d => d.detailId === detailId);
+    if (!detail) return;
 
-            detail.content = newContent;
-            renderTasks();
+    detail.content = newContent;
+    renderTasks();
 
-            try {
-                await fetch(
-                    `${API_URL}?action=editDetail&taskId=${taskId}&detailId=${detailId}&content=${encodeURIComponent(newContent)}`
-                );
-            } catch(e) {
-                alert("明細の更新でエラーが発生しました");
-            }
-        }
+    try {
+        await fetch(
+            `${API_URL}?action=editDetail&taskId=${taskId}&detailId=${detailId}&content=${encodeURIComponent(newContent)}`
+        );
+    } catch(e) {
+        alert("明細の更新でエラーが発生しました");
+    }
+}
 
-        async function addNewDetail(taskId, inputElement) {
-            const content = inputElement.value.trim();
-            if (!content) return;
-            
-            const task = globalTasks.find(t => t.taskId === taskId);
-            if (task) {
-                task.details.push({
-                    detailId: 'temp-' + Date.now(),
-                    content: content,
-                    targetQuantity: '',
-                    isDone: false
-                });
-                task.status = '作業中';
-                renderTasks();
-            }
-            
-            try {
-                await fetch(
-                    `${API_URL}?action=addDetail&taskId=${taskId}&content=${encodeURIComponent(content)}`
-                );
-            } catch(e) { 
-                alert("追加通信でエラーが発生しました"); 
-            }
-        }
+async function addNewDetail(taskId, inputElement) {
+    const content = inputElement.value.trim();
+    if (!content) return;
+    
+    const task = globalTasks.find(t => t.taskId === taskId);
+    if (task) {
+        task.details.push({
+            detailId: 'temp-' + Date.now(),
+            content: content,
+            targetQuantity: '',
+            isDone: false
+        });
+        task.status = '作業中';
+        renderTasks();
+    }
+    
+    try {
+        await fetch(
+            `${API_URL}?action=addDetail&taskId=${taskId}&content=${encodeURIComponent(content)}`
+        );
+    } catch(e) { 
+        alert("追加通信でエラーが発生しました"); 
+    }
+}
 
-        function openAssigneeModal(taskId) {
-            currentEditingTaskId = taskId;
-            const task = globalTasks.find(t => t.taskId === taskId);
-            const currentAssignees = task && task.assignee
-              ? String(task.assignee).split(',').map(s=>s.trim())
-              : [];
-            
-            const listContainer = document.getElementById('memberList');
-            listContainer.innerHTML = '';
-            
-            globalMembers.forEach(m => {
-                const isChecked = currentAssignees.includes(m.name) ? 'checked' : '';
-                listContainer.insertAdjacentHTML(
-                    'beforeend',
-                    `<label class="member-item">
-                        <input type="checkbox" class="member-checkbox" value="${m.name}" ${isChecked}>
-                        ${m.name}
-                     </label>`
-                );
-            });
-            
-            document.getElementById('assigneeModal').classList.add('show');
-        }
+function openAssigneeModal(taskId) {
+    currentEditingTaskId = taskId;
+    const task = globalTasks.find(t => t.taskId === taskId);
+    const currentAssignees = task && task.assignee
+      ? String(task.assignee).split(',').map(s=>s.trim())
+      : [];
+    
+    const listContainer = document.getElementById('memberList');
+    listContainer.innerHTML = '';
+    
+    globalMembers.forEach(m => {
+        const isChecked = currentAssignees.includes(m.name) ? 'checked' : '';
+        listContainer.insertAdjacentHTML(
+            'beforeend',
+            `<label class="member-item">
+                <input type="checkbox" class="member-checkbox" value="${m.name}" ${isChecked}>
+                ${m.name}
+             </label>`
+        );
+    });
+    
+    document.getElementById('assigneeModal').classList.add('show');
+}
 
-        function closeAssigneeModal() {
-            document.getElementById('assigneeModal').classList.remove('show');
-            currentEditingTaskId = null;
-        }
+function closeAssigneeModal() {
+    document.getElementById('assigneeModal').classList.remove('show');
+    currentEditingTaskId = null;
+}
 
-        function saveAssignees() {
-            if (!currentEditingTaskId) return;
-            const checkboxes = document.querySelectorAll('.member-checkbox:checked');
-            const selectedNames = Array.from(checkboxes).map(cb => cb.value);
-            const newValue = selectedNames.length > 0 ? selectedNames.join(', ') : '未定';
-            updateField(currentEditingTaskId, 'assignee', newValue);
-            closeAssigneeModal();
-        }
+function saveAssignees() {
+    if (!currentEditingTaskId) return;
+    const checkboxes = document.querySelectorAll('.member-checkbox:checked');
+    const selectedNames = Array.from(checkboxes).map(cb => cb.value);
+    const newValue = selectedNames.length > 0 ? selectedNames.join(', ') : '未定';
+    updateField(currentEditingTaskId, 'assignee', newValue);
+    closeAssigneeModal();
+}
 
-        window.onload = initializeApp;
-    </script>
-</body>
-</html>
+window.onload = initializeApp;
