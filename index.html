@@ -131,7 +131,8 @@
 
         function renderTabs() {
             const container = document.getElementById('tabsContainer');
-            const tabs = ['すべて', '個人', '営業', '工場'];
+            // ▼ ここだけ変更：個人・加工・営業・すべて の順
+            const tabs = ['個人', '加工', '営業', 'すべて'];
             let html = '';
             tabs.forEach(tab => html += `<div class="tab ${activeTab === tab ? 'active' : ''}" onclick="switchTab('${tab}')">${tab}</div>`);
             container.innerHTML = html;
@@ -151,6 +152,7 @@
                     const assignees = t.assignee ? String(t.assignee).split(',').map(s=>s.trim()) : [];
                     return assignees.includes(currentUserName);
                 }
+                // カテゴリ名に「加工」「営業」などが含まれていればヒット
                 return t.category.includes(activeTab);
             });
 
