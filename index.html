@@ -199,7 +199,6 @@
         }
         .add-detail-input:focus { border-color: var(--primary); background: #fff; border-style: solid; }
         .add-detail-input::placeholder { color: #9ca3af; font-weight: 500; }
-
         #loader {
             position: fixed;
             inset: 0;
@@ -223,7 +222,6 @@
             margin-bottom: 16px;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -340,14 +338,14 @@
     </div>
 
     <script>
-        const LIFF_ID = "2009451114-QigIkuUk"; 
+        const LIFF_ID = "2009451114-QigIkuUk";
         const API_URL = "https://script.google.com/macros/s/AKfycbwfgt3lSHpjJ4uaUglfg-Gc0TmxzNHn59QGxfMvSYw6jm-UeButRc7ahypGw_ZDJ5Dm/exec";
-        
+
         let globalTasks = [];
         let globalMembers = [];
         let currentUserName = '未定';
         let activeTab = '加工';
-        let currentEditingTaskId = null; 
+        let currentEditingTaskId = null;
 
         async function initializeApp() {
             try {
@@ -358,17 +356,15 @@
                 }
                 const profile = await liff.getProfile();
                 document.getElementById('loadingText').textContent = 'データ取得中...';
-                
                 const url = `${API_URL}?action=getData&uid=${profile.userId}&displayName=${encodeURIComponent(profile.displayName)}`;
                 const response = await fetch(url);
                 const data = await response.json();
                 onDataFetched(data);
-
             } catch (err) {
                 document.getElementById('loader').innerHTML =
-                  `<div style="text-align:center; padding: 20px;">
-                      <span style="color:var(--danger)">初期化エラー: ${err.message}</span>
-                   </div>`;
+                    `<div style="text-align:center; padding: 20px;">
+                        <span style="color:var(--danger)">初期化エラー: ${err.message}</span>
+                     </div>`;
             }
         }
 
@@ -384,7 +380,8 @@
 
         function renderTabs() {
             const container = document.getElementById('tabsContainer');
-            const tabs = ['個人', '加工', '営業', 'すべて'];
+            // ★ 「その他」タブを追加
+            const tabs = ['個人', '加工', '営業', 'その他', 'すべて'];
             let html = '';
             tabs.forEach(tab => {
                 html += `<div class="tab ${activeTab === tab ? 'active' : ''}"
@@ -403,18 +400,31 @@
             return p === '今日中' ? 3 : (p === '時間あるとき' ? 1 : 2);
         }
 
+        function isUnassigned(assignee) {
+            if (!assignee) return true;
+            const val = String(assignee).trim();
+            return val === '' || val === '未定';
+        }
+
         function renderTasks() {
             const container = document.getElementById('tasksContainer');
             container.innerHTML = '';
 
             let filteredTasks = globalTasks.filter(t => {
                 if (activeTab === 'すべて') return true;
+
                 if (activeTab === '個人') {
                     const assignees = t.assignee
-                      ? String(t.assignee).split(',').map(s=>s.trim())
-                      : [];
+                        ? String(t.assignee).split(',').map(s => s.trim())
+                        : [];
                     return assignees.includes(currentUserName);
                 }
+
+                // ★ 「その他」タブ = 担当者が未設定のタスク全部
+                if (activeTab === 'その他') {
+                    return isUnassigned(t.assignee);
+                }
+
                 const catForFilter = (t.category || '').replace('工場', '加工');
                 return catForFilter.includes(activeTab);
             });
@@ -435,17 +445,17 @@
 
             if (filteredTasks.length === 0) {
                 container.innerHTML =
-                  `<div style="text-align:center; padding: 60px 20px; color: var(--text-muted); font-weight: 500;">
-                      タスクがありません 🎉
-                   </div>`;
+                    `<div style="text-align:center; padding: 60px 20px; color: var(--text-muted); font-weight: 500;">
+                        タスクがありません 🎉
+                     </div>`;
                 return;
             }
 
             filteredTasks.forEach(task => {
                 const isCompleted = task.status === '完了';
                 const statusBadge = isCompleted
-                  ? `<span class="status-badge status-done">済</span>`
-                  : `<span class="status-badge status-wip">作業中</span>`;
+                    ? `<span class="status-badge status-done">済</span>`
+                    : `<span class="status-badge status-wip">作業中</span>`;
 
                 const rawCategory = task.category === '工場' ? '加工' : (task.category || '');
                 const catOpts = [...new Set(['営業', '加工', 'その他', rawCategory])];
@@ -457,10 +467,10 @@
                 catHtml += `</select>`;
 
                 const pClass = task.priority === '今日中'
-                  ? 'priority-high'
-                  : (task.priority === '時間あるとき'
-                      ? 'priority-low'
-                      : 'priority-normal');
+                    ? 'priority-high'
+                    : (task.priority === '時間あるとき'
+                        ? 'priority-low'
+                        : 'priority-normal');
                 let priorityHtml = `<select class="priority-select ${pClass}"
                                        onchange="updateField('${task.taskId}', 'priority', this.value)">`;
                 ['今日中', '平常', '時間あるとき'].forEach(p => {
@@ -475,9 +485,8 @@
                         const isChecked = detail.isDone ? 'checked' : '';
                         const textClass = detail.isDone ? 'completed-text' : '';
                         const qtyHtml = detail.targetQuantity
-                          ? `<div class="detail-qty">目標: ${detail.targetQuantity}</div>`
-                          : '';
-
+                            ? `<div class="detail-qty">目標: ${detail.targetQuantity}</div>`
+                            : '';
                         detailsHTML += `
                             <div class="detail-item">
                                 <input type="checkbox" class="detail-checkbox"
@@ -498,12 +507,12 @@
                                        onkeypress="if(event.key==='Enter') addNewDetail('${task.taskId}', this)">`;
 
                 let currentAssignees = task.assignee
-                  ? String(task.assignee).split(',').map(s=>s.trim()).filter(s=>s)
-                  : [];
+                    ? String(task.assignee).split(',').map(s => s.trim()).filter(s => s)
+                    : [];
                 if (currentAssignees.length === 1 && currentAssignees[0] === '未定') {
                     currentAssignees = [];
                 }
-                
+
                 let assigneeHtml = `<div class="assignee-display"
                                      onclick="openAssigneeModal('${task.taskId}')">`;
                 if (currentAssignees.length === 0) {
@@ -518,9 +527,9 @@
                 assigneeHtml += `</div>`;
 
                 const dateVal = task.deadline && task.deadline !== '未定'
-                  ? task.deadline.substring(0,10)
-                  : '';
-                
+                    ? task.deadline.substring(0, 10)
+                    : '';
+
                 const html = `
                     <div class="task-card ${isCompleted ? 'completed' : ''}">
                         <div class="task-header">
@@ -570,7 +579,7 @@
         async function toggleDetail(taskId, detailId, isChecked) {
             const task = globalTasks.find(t => t.taskId === taskId);
             const detail = task.details.find(d => d.detailId === detailId);
-            if(detail) detail.isDone = isChecked;
+            if (detail) detail.isDone = isChecked;
             const allDone = task.details.length > 0 && task.details.every(d => d.isDone);
             task.status = allDone ? '完了' : '作業中';
             renderTasks();
@@ -588,10 +597,8 @@
             if (!task) return;
             const detail = task.details.find(d => d.detailId === detailId);
             if (!detail) return;
-
             detail.content = newContent;
             renderTasks();
-
             try {
                 await fetch(
                     `${API_URL}?action=editDetail&taskId=${taskId}&detailId=${detailId}&content=${encodeURIComponent(newContent)}`
@@ -604,7 +611,6 @@
         async function addNewDetail(taskId, inputElement) {
             const content = inputElement.value.trim();
             if (!content) return;
-            
             const task = globalTasks.find(t => t.taskId === taskId);
             if (task) {
                 task.details.push({
@@ -616,13 +622,12 @@
                 task.status = '作業中';
                 renderTasks();
             }
-            
             try {
                 await fetch(
                     `${API_URL}?action=addDetail&taskId=${taskId}&content=${encodeURIComponent(content)}`
                 );
-            } catch(e) { 
-                alert("追加通信でエラーが発生しました"); 
+            } catch(e) {
+                alert("追加通信でエラーが発生しました");
             }
         }
 
@@ -630,12 +635,10 @@
             currentEditingTaskId = taskId;
             const task = globalTasks.find(t => t.taskId === taskId);
             const currentAssignees = task && task.assignee
-              ? String(task.assignee).split(',').map(s=>s.trim())
-              : [];
-            
+                ? String(task.assignee).split(',').map(s => s.trim())
+                : [];
             const listContainer = document.getElementById('memberList');
             listContainer.innerHTML = '';
-            
             globalMembers.forEach(m => {
                 const isChecked = currentAssignees.includes(m.name) ? 'checked' : '';
                 listContainer.insertAdjacentHTML(
@@ -646,7 +649,6 @@
                      </label>`
                 );
             });
-            
             document.getElementById('assigneeModal').classList.add('show');
         }
 
