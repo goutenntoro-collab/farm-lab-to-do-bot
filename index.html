@@ -380,7 +380,6 @@
 
         function renderTabs() {
             const container = document.getElementById('tabsContainer');
-            // ★ 「その他」タブを追加
             const tabs = ['個人', '加工', '営業', 'その他', 'すべて'];
             let html = '';
             tabs.forEach(tab => {
@@ -420,7 +419,6 @@
                     return assignees.includes(currentUserName);
                 }
 
-                // ★ 「その他」タブ = 担当者が未設定のタスク全部
                 if (activeTab === 'その他') {
                     return isUnassigned(t.assignee);
                 }
@@ -502,9 +500,10 @@
                     });
                 }
 
+                // ★ フォーカスが外れたとき(onblur)に追加するよう変更
                 detailsHTML += `<input type="text" class="add-detail-input"
-                                       placeholder="＋ 詳細を追加 (文字を打ってEnter)"
-                                       onkeypress="if(event.key==='Enter') addNewDetail('${task.taskId}', this)">`;
+                                       placeholder="＋ 詳細を追加 (入力してキーボード閉じると追加)"
+                                       onblur="addNewDetail('${task.taskId}', this)">`;
 
                 let currentAssignees = task.assignee
                     ? String(task.assignee).split(',').map(s => s.trim()).filter(s => s)
@@ -527,7 +526,7 @@
                 assigneeHtml += `</div>`;
 
                 const dateVal = task.deadline && task.deadline !== '未定'
-                    ? task.deadline.substring(0, 10)
+                    ? task.deadline.substring(0,10)
                     : '';
 
                 const html = `
@@ -611,6 +610,7 @@
         async function addNewDetail(taskId, inputElement) {
             const content = inputElement.value.trim();
             if (!content) return;
+
             const task = globalTasks.find(t => t.taskId === taskId);
             if (task) {
                 task.details.push({
@@ -622,6 +622,7 @@
                 task.status = '作業中';
                 renderTasks();
             }
+
             try {
                 await fetch(
                     `${API_URL}?action=addDetail&taskId=${taskId}&content=${encodeURIComponent(content)}`
