@@ -121,7 +121,10 @@
   let userName = "";
   let userId   = "";
 
-  // LIFF初期化
+  // 訪問先はLIFF認証と関係ないので即座に読み込む
+  loadClients();
+
+  // LIFFはユーザー名・IDの取得だけに使う
   liff.init({ liffId: LIFF_ID })
     .then(() => {
       if (!liff.isLoggedIn()) { liff.login(); return; }
@@ -132,8 +135,7 @@
       userName = profile.displayName;
       userId   = profile.userId;
     })
-    .catch(err => console.error("LIFF init error", err))
-    .finally(() => loadClients());
+    .catch(err => console.error("LIFF init error", err));
 
   // 日付
   function toJST(d){ return new Date(d.getTime()+9*3600000).toISOString().slice(0,10); }
