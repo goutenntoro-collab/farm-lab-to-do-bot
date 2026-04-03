@@ -132,23 +132,23 @@
   // LIFF初期化
   liff.init({ liffId: LIFF_ID })
     .then(() => {
-      if (!liff.isLoggedIn()) {
-        liff.login();
-        return;
-      }
+      // isLoggedInチェックを外してgetProfileを直接呼ぶ
       return liff.getProfile();
     })
     .then(profile => {
-      if (!profile) return;
+      if (!profile) {
+        alert("profileがnullです");
+        return;
+      }
       userName = profile.displayName;
       userId   = profile.userId;
-      alert("取得成功: " + userId); // ★確認用
+      alert("取得成功: " + userId);
     })
     .catch(err => {
-      alert("LIFFエラー: " + err.message);
+      // エラー内容を詳しく表示
+      alert("エラー: " + err.message + "\nisLoggedIn: " + liff.isLoggedIn());
     })
     .finally(() => {
-      // 初期化完了後にボタンを訪問先選択待ちに戻す
       updateCount();
     });
 
