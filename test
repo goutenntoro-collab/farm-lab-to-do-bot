@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LIFF デバッグ診断</title>
+  <script src="https://static.line-sapp.com/liff/edge/2.1/sdk.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; background: #f5f5f5; }
+    .log { background: #1a1a2e; color: #00ff88; padding: 1rem; border-radius: .5rem; font-family: monospace; font-size: .8rem; line-height: 1.8; min-height: 200px; margin-bottom: 1rem; word-break: break-all; }
+    .info { background: white; padding: 1rem; border-radius: .5rem; margin-bottom: 1rem; font-size: .85rem; line-height: 1.8; }
+    .label { font-weight: bold; color: #555; }
+    .ok   { color: green; }
+    .ng   { color: red; }
+    .warn { color: orange; }
+    h2 { margin-bottom: .5rem; }
+  </style>
+</head>
+<body>
+
+<h2>🔍 LIFF 診断ページ</h2>
+
+<div class="info" id="envInfo">環境情報を取得中...</div>
+
+<div class="log" id="logArea">起動中...<br></div>
+
+<script>
+const LIFF_ID = "2009451114-N7LOHmLQ";
+
+// =============================================
+// ログ出力
+// =============================================
+function log(msg, type = "info") {
+  const el = document.getElementById("logArea");
+  const ts = new Date().toLocaleTimeString("ja-JP");
+  const color = type === "ok" ? "#00ff88" : type === "ng" ? "#ff4444" : type === "warn" ? "#ffbb00" : "#cccccc";
+  el.innerHTML += `<span style="color:${color}">[${ts}] ${msg}</span><br>`;
+  console.log(msg);
+}
+
+// =============================================
+// 環境情報（LIFFとは無関係に取れる情報）
+// =============================================
+function showEnvInfo() {
+  const ua = navigator.userAgent;
+  const isLineUA = /Line\//i.test(ua);
+  const currentUrl = location.href;
+
+  document.getElementById("envInfo").innerHTML = `
+    <div><span class="label">現在のURL：</span><br><small>${currentUrl}</small></div>
+    <div><span class="label">LINEアプリ内(UA判定)：</span>
+      <span class="${isLineUA ? 'ok' : 'ng'}">${isLineUA ? '✅ YES' : '❌ NO（外部ブラウザ）'}</span></div>
+    <div><span class="label">UserAgent：</span><br><small style="word-break:break-all">${ua}</small></div>
+    <div><span class="label">LIFF ID：</span>${LIFF_ID}</div>
+  `;
+
+  log("現在のURL: " + currentUrl);
+  log("UA LINE判定: " + (isLineUA ? "✅ LINE内" : "❌ 外部ブラウザ"), isLineUA ? "ok" : "ng");
+}
+
+// =============================================
+// liff.init タイムアウト付き実行
+// =============================================
+async function runLiffDiag() {
+  log("▶ liff.init() 開始");
+
+  // 10秒タイムアウト
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error("TIMEOUT: liff.init が10秒以内に完了しませんでした")), 10000);
+  });
+
+  try {
+    await Promise.race([
+      liff.init({ liffId: LIFF_ID }),
+      timeoutPromise
+    ]);
+    log("✅ liff.init() 完了", "ok");
+
+  } catch (err) {
+    log("❌ liff.init() エラー: " + err.message, "ng");
+
+    if (err.message.includes("TIMEOUT")) {
+      log("⚠️ 原因候補: LINE DevelopersのEndpoint URLと現在のURLが一致していない可能性が高い", "warn");
+      log("  → LINE Developers で LIFF " + LIFF_ID + " のEndpoint URLを確認してください", "warn");
+    } else {
+      log("  エラーコード: " + (err.code || "なし"), "warn");
+    }
+    return;
+  }
+
+  // isInClient
+  const inClient = liff.isInClient();
+  log("isInClient(): " + inClient, inClient ? "ok" : "warn");
+  if (!inClient) {
+    log("⚠️ LINE外ブラウザから開かれています。getProfile()は使えません", "warn");
+  }
+
+  // isLoggedIn
+  const loggedIn = liff.isLoggedIn();
+  log("isLoggedIn(): " + loggedIn, loggedIn ? "ok" : "ng");
+  if (!loggedIn) {
+    log("⚠️ 未ログイン → liff.login() を呼びます", "warn");
+    liff.login({ redirectUri: location.href });
+    return;
+  }
+
+  // getProfile
+  log("▶ liff.getProfile() 開始");
+  try {
+    const profile = await liff.getProfile();
+    log("✅ getProfile() 成功", "ok");
+    log("  displayName: " + profile.displayName, "ok");
+    log("  userId: " + profile.userId, "ok");
+    log("  pictureUrl: " + (profile.pictureUrl || "なし"));
+
+    document.getElementById("envInfo").innerHTML += `
+      <hr style="margin:.5rem 0">
+      <div class="ok"><strong>✅ LIFF 正常動作</strong></div>
+      <div><span class="label">名前：</span>${profile.displayName}</div>
+      <div><span class="label">userId：</span>${profile.userId}</div>
+    `;
+
+  } catch (err) {
+    log("❌ getProfile() エラー: " + err.message, "ng");
+  }
+
+  // getAccessToken (参考情報)
+  try {
+    const token = liff.getAccessToken();
+    log("accessToken: " + (token ? token.slice(0,20) + "..." : "null"), token ? "ok" : "warn");
+  } catch(e) {
+    log("accessToken取得不可: " + e.message, "warn");
+  }
+}
+
+// =============================================
+// 起動
+// =============================================
+showEnvInfo();
+runLiffDiag();
+</script>
+</body>
+</html>
