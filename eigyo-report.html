@@ -128,21 +128,22 @@
   // LIFF初期化（userId取得が目的）
  liff.init({ liffId: LIFF_ID })
     .then(() => {
-      // getContext()はinit直後に同期で取れる
+      // ★ 全部alertで確認
+      alert("init成功 / isLoggedIn: " + liff.isLoggedIn());
       const context = liff.getContext();
-      if (context && context.userId) {
-        userId = context.userId;
-      }
+      alert("context: " + JSON.stringify(context));
+
       if (!liff.isLoggedIn()) { liff.login(); return; }
       return liff.getProfile();
     })
     .then(profile => {
+      alert("profile: " + JSON.stringify(profile));
       if (!profile) return;
       userName = profile.displayName;
       if (!userId) userId = profile.userId;
     })
     .catch(err => {
-      console.error("LIFF init error", err);
+      alert("エラー: " + err.message); // ★ エラーも表示
     })
     .finally(() => {
       liffReady = true;
