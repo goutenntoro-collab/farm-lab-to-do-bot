@@ -114,58 +114,61 @@
 </div>
 
 <script>
-  const GAS_URL  = "https://script.google.com/macros/s/AKfycbysL386BpL7xOK_j3ztUMlFilDb20hpCAsSN7I8MQTI9lq_nZ656kFjTv8N6TFwtlO3/exec";
+ const GAS_URL  = "https://script.google.com/macros/s/AKfycbysL386BpL7xOK_j3ztUMlFilDb20hpCAsSN7I8MQTI9lq_nZ656kFjTv8N6TFwtlO3/exec";
   const LIFF_ID  = "2009451114-N7LOHmLQ";
 
   const dateInput = document.getElementById("dateInput");
+  const submitBtn = document.getElementById("submitBtn");
   let userName  = "";
   let userId    = "";
-  let liffReady = false; // ★ LIFF初期化完了フラグ
 
-  // 訪問先は認証と無関係なので即座に読み込む
+  // 最初は送信ボタンを完全に無効化
+  submitBtn.disabled = true;
+  submitBtn.textContent = "初期化中...";
+
+  // 訪問先は即座に読み込む
   loadClients();
 
-  // LIFF初期化（userId取得が目的）
- liff.init({ liffId: LIFF_ID })
+  // LIFF初期化
+  liff.init({ liffId: LIFF_ID })
     .then(() => {
-      // ★ 全部alertで確認
-      alert("init成功 / isLoggedIn: " + liff.isLoggedIn());
-      const context = liff.getContext();
-      alert("context: " + JSON.stringify(context));
-
-      if (!liff.isLoggedIn()) { liff.login(); return; }
+      if (!liff.isLoggedIn()) {
+        liff.login();
+        return;
+      }
       return liff.getProfile();
     })
     .then(profile => {
-      alert("profile: " + JSON.stringify(profile));
       if (!profile) return;
       userName = profile.displayName;
-      if (!userId) userId = profile.userId;
+      userId   = profile.userId;
+      alert("取得成功: " + userId); // ★確認用
     })
     .catch(err => {
-      alert("エラー: " + err.message); // ★ エラーも表示
+      alert("LIFFエラー: " + err.message);
     })
     .finally(() => {
-      liffReady = true;
+      // 初期化完了後にボタンを訪問先選択待ちに戻す
+      updateCount();
     });
 
-  // ── 日付 ──────────────────────────────────────────
+  // 日付
   function toJST(d) {
     return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
   }
-  dateInput.value   = toJST(new Date());
+  dateInput.value    = toJST(new Date());
   dateInput.readOnly = true;
 
   function setDate(type, el) {
     document.querySelectorAll(".date-tab").forEach(t => t.classList.remove("active"));
     el.classList.add("active");
     const now = new Date();
-    if (type === "today")     { dateInput.value = toJST(now);                        dateInput.readOnly = true;  }
-    else if (type === "yesterday") { dateInput.value = toJST(new Date(now - 86400000)); dateInput.readOnly = true;  }
-    else                      {                                                        dateInput.readOnly = false; dateInput.focus(); }
+    if (type === "today")          { dateInput.value = toJST(now);                        dateInput.readOnly = true;  }
+    else if (type === "yesterday") { dateInput.value = toJST(new Date(now - 86400000));   dateInput.readOnly = true;  }
+    else                           {                                                        dateInput.readOnly = false; dateInput.focus(); }
   }
 
-  // ── 訪問先読み込み ────────────────────────────────
+  // 訪問先読み込み
   function loadClients() {
     fetch(GAS_URL)
       .then(r => r.json())
@@ -210,45 +213,32 @@
   function updateCount() {
     const checked = [...document.querySelectorAll("input[type=checkbox]:checked")];
     document.getElementById("countBadge").textContent = checked.length + "件選択中";
-    const btn = document.getElementById("submitBtn");
     if (checked.length > 0) {
-      btn.disabled = false;
-      btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> ${checked.length}件の訪問を記録する`;
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> ${checked.length}件の訪問を記録する`;
     } else {
-      btn.disabled = true;
-      btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> 訪問先を選択してください`;
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> 訪問先を選択してください`;
     }
   }
 
-  // ── 送信 ─────────────────────────────────────────
   async function submitReport() {
     const date   = dateInput.value;
     const memo   = document.getElementById("memoInput").value;
     const visits = [...document.querySelectorAll("input[type=checkbox]:checked")].map(c => c.value);
     if (!date || visits.length === 0) return;
 
-    const btn = document.getElementById("submitBtn");
-    btn.disabled    = true;
-    btn.textContent = "送信中...";
-
-    // ★ LIFFがまだ初期化中なら最大3秒待つ
-    if (!liffReady) {
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 100));
-        if (liffReady) break;
-      }
-    }
+    submitBtn.disabled    = true;
+    submitBtn.textContent = "送信中...";
 
     const payload = {
       date,
       visits,
       memo,
       userName,
-      userId,       // ← ここにLINEのuserIdが入る
+      userId,
       reportedAt: new Date().toISOString()
     };
-
-    console.log("送信payload:", JSON.stringify(payload)); // デバッグ用
 
     try {
       await fetch(GAS_URL, {
@@ -264,7 +254,7 @@
     showSuccess(date, visits, memo);
   }
 
-   function showSuccess(date, visits, memo) {
+  function showSuccess(date, visits, memo) {
     document.getElementById("mainForm").style.display = "none";
     const sc = document.getElementById("successScreen");
     sc.classList.add("show");
