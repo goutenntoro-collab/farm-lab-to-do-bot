@@ -114,7 +114,7 @@
 </div>
 
 <script>
- const GAS_URL  = "https://script.google.com/macros/s/AKfycbysL386BpL7xOK_j3ztUMlFilDb20hpCAsSN7I8MQTI9lq_nZ656kFjTv8N6TFwtlO3/exec";
+const GAS_URL  = "https://script.google.com/macros/s/AKfycbysL386BpL7xOK_j3ztUMlFilDb20hpCAsSN7I8MQTI9lq_nZ656kFjTv8N6TFwtlO3/exec";
   const LIFF_ID  = "2009451114-N7LOHmLQ";
 
   const dateInput = document.getElementById("dateInput");
@@ -122,37 +122,44 @@
   let userName  = "";
   let userId    = "";
 
-  // 最初は送信ボタンを完全に無効化
+  // デバッグ表示用関数
+  function showDebug(msg) {
+    let el = document.getElementById("debugArea");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "debugArea";
+      el.style = "background:#fee;padding:1rem;margin:1rem 0;border-radius:.5rem;font-size:.75rem;word-break:break-all;";
+      document.querySelector(".app").prepend(el);
+    }
+    el.innerHTML += msg + "<br>";
+  }
+
   submitBtn.disabled = true;
   submitBtn.textContent = "初期化中...";
 
-  // 訪問先は即座に読み込む
   loadClients();
 
-  // LIFF初期化
+  showDebug("🟡 liff.init開始");
+
   liff.init({ liffId: LIFF_ID })
     .then(() => {
-      // isLoggedInチェックを外してgetProfileを直接呼ぶ
+      showDebug("🟢 init成功 / isLoggedIn: " + liff.isLoggedIn());
       return liff.getProfile();
     })
     .then(profile => {
-      if (!profile) {
-        alert("profileがnullです");
-        return;
-      }
+      showDebug("🟢 profile取得: " + JSON.stringify(profile));
+      if (!profile) return;
       userName = profile.displayName;
       userId   = profile.userId;
-      alert("取得成功: " + userId);
     })
     .catch(err => {
-      // エラー内容を詳しく表示
-      alert("エラー: " + err.message + "\nisLoggedIn: " + liff.isLoggedIn());
+      showDebug("🔴 エラー: " + err.message);
     })
     .finally(() => {
+      showDebug("🏁 finally / userId: " + userId);
       updateCount();
     });
 
-  // 日付
   function toJST(d) {
     return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
   }
@@ -163,12 +170,11 @@
     document.querySelectorAll(".date-tab").forEach(t => t.classList.remove("active"));
     el.classList.add("active");
     const now = new Date();
-    if (type === "today")          { dateInput.value = toJST(now);                        dateInput.readOnly = true;  }
-    else if (type === "yesterday") { dateInput.value = toJST(new Date(now - 86400000));   dateInput.readOnly = true;  }
-    else                           {                                                        dateInput.readOnly = false; dateInput.focus(); }
+    if (type === "today")          { dateInput.value = toJST(now);                      dateInput.readOnly = true;  }
+    else if (type === "yesterday") { dateInput.value = toJST(new Date(now-86400000));   dateInput.readOnly = true;  }
+    else                           {                                                      dateInput.readOnly = false; dateInput.focus(); }
   }
 
-  // 訪問先読み込み
   function loadClients() {
     fetch(GAS_URL)
       .then(r => r.json())
@@ -190,7 +196,6 @@
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(c.name);
     });
-
     let html = "";
     Object.keys(grouped).forEach(cat => {
       html += `<div class="category"><div class="cat-name">${cat}</div><div class="client-grid">`;
@@ -231,14 +236,7 @@
     submitBtn.disabled    = true;
     submitBtn.textContent = "送信中...";
 
-    const payload = {
-      date,
-      visits,
-      memo,
-      userName,
-      userId,
-      reportedAt: new Date().toISOString()
-    };
+    const payload = { date, visits, memo, userName, userId, reportedAt: new Date().toISOString() };
 
     try {
       await fetch(GAS_URL, {
@@ -248,7 +246,7 @@
         body:    JSON.stringify(payload)
       });
     } catch (e) {
-      console.error("送信エラー:", e);
+      showDebug("送信エラー: " + e.message);
     }
 
     showSuccess(date, visits, memo);
