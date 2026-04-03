@@ -125,6 +125,8 @@
   loadClients();
 
   // LIFFはユーザー名・IDの取得だけに使う
+  loadClients(); // 訪問先は即座に読み込む
+
   liff.init({ liffId: LIFF_ID })
     .then(() => {
       if (!liff.isLoggedIn()) { liff.login(); return; }
