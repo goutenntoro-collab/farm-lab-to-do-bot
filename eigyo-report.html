@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>営業訪問レポート</title>
-  <script src="https://static.line-sapp.com/liff/edge/2.1/sdk.js"></script>
+　<script src="https://static.line-sapp.com/liff/edge/2.1/sdk.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
@@ -114,35 +114,51 @@
 </div>
 
 <script>
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbysL386BpL7xOK_j3ztUMlFilDb20hpCAsSN7I8MQTI9lq_nZ656kFjTv8N6TFwtlO3/exec";
-  const LIFF_ID = "2009451114-N7LOHmLQ";
+const GAS_URL  = "https://script.google.com/macros/s/AKfycbysL386BpL7xOK_j3ztUMlFilDb20hpCAsSN7I8MQTI9lq_nZ656kFjTv8N6TFwtlO3/exec";
+  const LIFF_ID  = "2009451114-N7LOHmLQ";
 
   const dateInput = document.getElementById("dateInput");
   const submitBtn = document.getElementById("submitBtn");
-  let userName = "";
-  let userId   = "";
+  let userName  = "";
+  let userId    = "";
 
-  // ★ プロフィール取得のPromiseを変数に保持しておく
-  // submitReport()の中でawaitすることで、取得完了を待ってから送信できる
-  const profilePromise = liff.init({ liffId: LIFF_ID })
+  // デバッグ表示用関数
+  function showDebug(msg) {
+    let el = document.getElementById("debugArea");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "debugArea";
+      el.style = "background:#fee;padding:1rem;margin:1rem 0;border-radius:.5rem;font-size:.75rem;word-break:break-all;";
+      document.querySelector(".app").prepend(el);
+    }
+    el.innerHTML += msg + "<br>";
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = "初期化中...";
+
+  loadClients();
+
+  showDebug("🟡 liff.init開始");
+
+  liff.init({ liffId: LIFF_ID })
     .then(() => {
-      if (!liff.isLoggedIn()) {
-        liff.login();
-        return;
-      }
+      showDebug("🟢 init成功 / isLoggedIn: " + liff.isLoggedIn());
       return liff.getProfile();
     })
     .then(profile => {
+      showDebug("🟢 profile取得: " + JSON.stringify(profile));
       if (!profile) return;
       userName = profile.displayName;
       userId   = profile.userId;
     })
     .catch(err => {
-      console.error("LIFF init error:", err);
+      showDebug("🔴 エラー: " + err.message);
+    })
+    .finally(() => {
+      showDebug("🏁 finally / userId: " + userId);
+      updateCount();
     });
-
-  // 訪問先はLIFFと無関係に即読み込む
-  loadClients();
 
   function toJST(d) {
     return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
@@ -154,9 +170,9 @@
     document.querySelectorAll(".date-tab").forEach(t => t.classList.remove("active"));
     el.classList.add("active");
     const now = new Date();
-    if (type === "today")          { dateInput.value = toJST(now);                    dateInput.readOnly = true;  }
-    else if (type === "yesterday") { dateInput.value = toJST(new Date(now-86400000)); dateInput.readOnly = true;  }
-    else                           {                                                    dateInput.readOnly = false; dateInput.focus(); }
+    if (type === "today")          { dateInput.value = toJST(now);                      dateInput.readOnly = true;  }
+    else if (type === "yesterday") { dateInput.value = toJST(new Date(now-86400000));   dateInput.readOnly = true;  }
+    else                           {                                                      dateInput.readOnly = false; dateInput.focus(); }
   }
 
   function loadClients() {
@@ -220,17 +236,7 @@
     submitBtn.disabled    = true;
     submitBtn.textContent = "送信中...";
 
-    // ★ ここでプロフィール取得の完了を待つ（これが核心の修正）
-    await profilePromise;
-
-    const payload = {
-      date,
-      visits,
-      memo,
-      userName,
-      userId,
-      reportedAt: new Date().toISOString()
-    };
+    const payload = { date, visits, memo, userName, userId, reportedAt: new Date().toISOString() };
 
     try {
       await fetch(GAS_URL, {
@@ -240,7 +246,7 @@
         body:    JSON.stringify(payload)
       });
     } catch (e) {
-      console.error("送信エラー:", e);
+      showDebug("送信エラー: " + e.message);
     }
 
     showSuccess(date, visits, memo);
@@ -248,11 +254,12 @@
 
   function showSuccess(date, visits, memo) {
     document.getElementById("mainForm").style.display = "none";
-    const sc  = document.getElementById("successScreen");
+    const sc = document.getElementById("successScreen");
     sc.classList.add("show");
     const d   = date.replace(/-/g, "/");
     let txt   = `<strong>${d}</strong> の訪問先：<br>${visits.join("、")}`;
     if (memo) txt += `<br><br>📝 ${memo}`;
+    txt += `<br><br>👤 ${userName || "名前未取得"}<br>🔑 ${userId || "ID未取得"}`;
     document.getElementById("successDetail").innerHTML = txt;
   }
 
