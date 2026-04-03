@@ -114,19 +114,18 @@
 </div>
 
 <script>
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbysL386BpL7xOK_j3ztUMlFilDb20hpCAsSN7I8MQTI9lq_nZ656kFjTv8N6TFwtlO3/exec";
-  const LIFF_ID = "2009451114-N7LOHmLQ";
+  const GAS_URL  = "https://script.google.com/macros/s/AKfycbysL386BpL7xOK_j3ztUMlFilDb20hpCAsSN7I8MQTI9lq_nZ656kFjTv8N6TFwtlO3/exec";
+  const LIFF_ID  = "2009451114-N7LOHmLQ";
 
   const dateInput = document.getElementById("dateInput");
-  let userName = "";
-  let userId   = "";
+  let userName  = "";
+  let userId    = "";
+  let liffReady = false; // ★ LIFF初期化完了フラグ
 
-  // 訪問先はLIFF認証と関係ないので即座に読み込む
+  // 訪問先は認証と無関係なので即座に読み込む
   loadClients();
 
-  // LIFFはユーザー名・IDの取得だけに使う
-  loadClients(); // 訪問先は即座に読み込む
-
+  // LIFF初期化（userId取得が目的）
   liff.init({ liffId: LIFF_ID })
     .then(() => {
       if (!liff.isLoggedIn()) { liff.login(); return; }
@@ -134,53 +133,60 @@
     })
     .then(profile => {
       if (!profile) return;
-      userName = profile.displayName;
-      userId   = profile.userId;
+      userName  = profile.displayName;
+      userId    = profile.userId;
     })
-    .catch(err => console.error("LIFF init error", err));
+    .catch(err => {
+      console.error("LIFF init error", err);
+    })
+    .finally(() => {
+      liffReady = true; // ★ 成功・失敗どちらでも完了とする
+    });
 
-  // 日付
-  function toJST(d){ return new Date(d.getTime()+9*3600000).toISOString().slice(0,10); }
-  dateInput.value = toJST(new Date());
+  // ── 日付 ──────────────────────────────────────────
+  function toJST(d) {
+    return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
+  }
+  dateInput.value   = toJST(new Date());
   dateInput.readOnly = true;
 
-  function setDate(type, el){
-    document.querySelectorAll(".date-tab").forEach(t=>t.classList.remove("active"));
+  function setDate(type, el) {
+    document.querySelectorAll(".date-tab").forEach(t => t.classList.remove("active"));
     el.classList.add("active");
     const now = new Date();
-    if(type==="today"){ dateInput.value=toJST(now); dateInput.readOnly=true; }
-    else if(type==="yesterday"){ dateInput.value=toJST(new Date(now-86400000)); dateInput.readOnly=true; }
-    else { dateInput.readOnly=false; dateInput.focus(); }
+    if (type === "today")     { dateInput.value = toJST(now);                        dateInput.readOnly = true;  }
+    else if (type === "yesterday") { dateInput.value = toJST(new Date(now - 86400000)); dateInput.readOnly = true;  }
+    else                      {                                                        dateInput.readOnly = false; dateInput.focus(); }
   }
 
-  // 訪問先読み込み
-  function loadClients(){
+  // ── 訪問先読み込み ────────────────────────────────
+  function loadClients() {
     fetch(GAS_URL)
-      .then(r=>r.json())
-      .then(clients=>renderClients(clients))
-      .catch(()=>{
+      .then(r => r.json())
+      .then(clients => renderClients(clients))
+      .catch(() => {
         renderClients([
-          {name:"白崎海洋公園", category:"観光"},
-          {name:"中津", category:"その他"},
-          {name:"かえるの港", category:"観光"}
+          { name: "白崎海洋公園", category: "観光" },
+          { name: "中津",         category: "その他" },
+          { name: "かえるの港",   category: "観光" }
         ]);
       });
   }
 
-  function renderClients(clients){
-    const area = document.getElementById("clientsArea");
+  function renderClients(clients) {
+    const area    = document.getElementById("clientsArea");
     const grouped = {};
-    clients.forEach(c=>{
+    clients.forEach(c => {
       const cat = c.category || "その他";
-      if(!grouped[cat]) grouped[cat]=[];
+      if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(c.name);
     });
 
-    let html="";
-    Object.keys(grouped).forEach(cat=>{
+    let html = "";
+    Object.keys(grouped).forEach(cat => {
       html += `<div class="category"><div class="cat-name">${cat}</div><div class="client-grid">`;
-      grouped[cat].forEach(name=>{
-        const id = "c_"+name;
+      grouped[cat].forEach(name => {
+        const id = "c_" + name;
         html += `
           <div class="client-card">
             <input type="checkbox" id="${id}" value="${name}" onchange="updateCount()">
@@ -195,69 +201,82 @@
     area.innerHTML = html;
   }
 
-  function updateCount(){
+  function updateCount() {
     const checked = [...document.querySelectorAll("input[type=checkbox]:checked")];
-    document.getElementById("countBadge").textContent = checked.length+"件選択中";
+    document.getElementById("countBadge").textContent = checked.length + "件選択中";
     const btn = document.getElementById("submitBtn");
-    if(checked.length>0){
-      btn.disabled=false;
-      btn.innerHTML=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> ${checked.length}件の訪問を記録する`;
-    }else{
-      btn.disabled=true;
-      btn.innerHTML=`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> 訪問先を選択してください`;
+    if (checked.length > 0) {
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> ${checked.length}件の訪問を記録する`;
+    } else {
+      btn.disabled = true;
+      btn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> 訪問先を選択してください`;
     }
   }
 
-  async function submitReport(){
+  // ── 送信 ─────────────────────────────────────────
+  async function submitReport() {
     const date   = dateInput.value;
     const memo   = document.getElementById("memoInput").value;
-    const visits = [...document.querySelectorAll("input[type=checkbox]:checked")].map(c=>c.value);
-    if(!date || visits.length===0) return;
+    const visits = [...document.querySelectorAll("input[type=checkbox]:checked")].map(c => c.value);
+    if (!date || visits.length === 0) return;
 
     const btn = document.getElementById("submitBtn");
-    btn.disabled=true;
-    btn.textContent="送信中...";
+    btn.disabled    = true;
+    btn.textContent = "送信中...";
+
+    // ★ LIFFがまだ初期化中なら最大3秒待つ
+    if (!liffReady) {
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 100));
+        if (liffReady) break;
+      }
+    }
 
     const payload = {
       date,
       visits,
       memo,
       userName,
-      userId,
+      userId,       // ← ここにLINEのuserIdが入る
       reportedAt: new Date().toISOString()
     };
 
-    try{
-      await fetch(GAS_URL,{
-        method:"POST",
-        mode:"no-cors",
-        headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify(payload)
+    console.log("送信payload:", JSON.stringify(payload)); // デバッグ用
+
+    try {
+      await fetch(GAS_URL, {
+        method:  "POST",
+        mode:    "no-cors",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(payload)
       });
-    }catch(e){}
+    } catch (e) {
+      console.error("送信エラー:", e);
+    }
 
-    showSuccess(date,visits,memo);
+    showSuccess(date, visits, memo);
   }
 
-  function showSuccess(date,visits,memo){
-    document.getElementById("mainForm").style.display="none";
-    const sc=document.getElementById("successScreen");
+  function showSuccess(date, visits, memo) {
+    document.getElementById("mainForm").style.display = "none";
+    const sc = document.getElementById("successScreen");
     sc.classList.add("show");
-    const d=date.replace(/-/g,"/");
-    let txt=`<strong>${d}</strong> の訪問先：<br>${visits.join("、")}`;
-    if(memo) txt+=`<br><br>📝 ${memo}`;
-    document.getElementById("successDetail").innerHTML=txt;
+    const d   = date.replace(/-/g, "/");
+    let txt   = `<strong>${d}</strong> の訪問先：<br>${visits.join("、")}`;
+    if (memo) txt += `<br><br>📝 ${memo}`;
+    document.getElementById("successDetail").innerHTML = txt;
   }
 
-  function resetForm(){
-    document.querySelectorAll("input[type=checkbox]").forEach(c=>c.checked=false);
-    document.getElementById("memoInput").value="";
-    dateInput.value=toJST(new Date());
-    dateInput.readOnly=true;
-    document.querySelectorAll(".date-tab").forEach(t=>t.classList.remove("active"));
+  function resetForm() {
+    document.querySelectorAll("input[type=checkbox]").forEach(c => c.checked = false);
+    document.getElementById("memoInput").value = "";
+    dateInput.value    = toJST(new Date());
+    dateInput.readOnly = true;
+    document.querySelectorAll(".date-tab").forEach(t => t.classList.remove("active"));
     document.querySelector('[data-type="today"]').classList.add("active");
     updateCount();
-    document.getElementById("mainForm").style.display="";
+    document.getElementById("mainForm").style.display = "";
     document.getElementById("successScreen").classList.remove("show");
   }
 </script>
