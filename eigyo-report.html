@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>営業訪問レポート</title>
-　<script src="https://static.line-sapp.com/liff/edge/2.1/sdk.js"></script>
+  <script src="https://static.line-sapp.com/liff/edge/2.1/sdk.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
@@ -61,10 +61,27 @@
     .success-detail{font-size:.875rem;color:var(--muted);line-height:1.7}
     .btn-reset{margin-top:1.5rem;padding:.75rem 1.5rem;border-radius:var(--radius);background:var(--surface);border:1.5px solid var(--border);font-family:inherit;font-size:.875rem;font-weight:600;color:var(--muted);cursor:pointer;transition:all var(--transition)}
     .btn-reset:hover{border-color:var(--primary);color:var(--primary)}
+
+    /* ── エラーバナー（LINE外アクセス用） ── */
+    .warn-banner{background:#fff3cd;border:1.5px solid #f0c040;border-radius:var(--radius);padding:1rem 1.25rem;margin-bottom:1rem;font-size:.875rem;line-height:1.6;display:none}
+    .warn-banner.show{display:block}
+    /* ── デバッグ（本番では非表示にしてOK） ── */
+    #debugArea{background:#fee;padding:1rem;margin:1rem 0;border-radius:.5rem;font-size:.75rem;word-break:break-all;display:none}
+    #debugArea.visible{display:block}
   </style>
 </head>
 <body>
 <div class="app" id="mainForm">
+
+  <!-- LINE外アクセス警告 -->
+  <div class="warn-banner" id="warnBanner">
+    ⚠️ このページは<strong>LINEアプリ内</strong>から開いてください。<br>
+    外部ブラウザではユーザー情報を取得できません。
+  </div>
+
+  <!-- デバッグログ（本番で隠す場合は id="debugArea" の display:none のまま） -->
+  <div id="debugArea"></div>
+
   <div class="card">
     <div style="font-size:1.2rem;font-weight:700;display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#01696f" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -76,9 +93,9 @@
   <div class="card">
     <div class="label">📅 訪問日</div>
     <div class="date-tabs">
-      <button class="date-tab active" data-type="today" onclick="setDate('today',this)">今日</button>
-      <button class="date-tab" data-type="yesterday" onclick="setDate('yesterday',this)">昨日</button>
-      <button class="date-tab" data-type="other" onclick="setDate('other',this)">指定する</button>
+      <button class="date-tab active" data-type="today"      onclick="setDate('today',this)">今日</button>
+      <button class="date-tab"        data-type="yesterday"  onclick="setDate('yesterday',this)">昨日</button>
+      <button class="date-tab"        data-type="other"      onclick="setDate('other',this)">指定する</button>
     </div>
     <input type="date" id="dateInput" class="date-input">
   </div>
@@ -97,9 +114,9 @@
   </div>
 
   <div style="padding-bottom:env(safe-area-inset-bottom,16px)">
-    <button class="btn" id="submitBtn" onclick="submitReport()" disabled>
+    <button class="btn" id="submitBtn" disabled>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-      訪問先を選択してください
+      <span id="submitLabel">初期化中...</span>
     </button>
   </div>
 </div>
@@ -114,166 +131,253 @@
 </div>
 
 <script>
-const GAS_URL  = "https://script.google.com/macros/s/AKfycbysL386BpL7xOK_j3ztUMlFilDb20hpCAsSN7I8MQTI9lq_nZ656kFjTv8N6TFwtlO3/exec";
-  const LIFF_ID  = "2009451114-N7LOHmLQ";
+// =============================================
+// 定数
+// =============================================
+const GAS_URL = "https://script.google.com/macros/s/AKfycbysL386BpL7xOK_j3ztUMlFilDb20hpCAsSN7I8MQTI9lq_nZ656kFjTv8N6TFwtlO3/exec";
+const LIFF_ID = "2009451114-N7LOHmLQ";
 
-  const dateInput = document.getElementById("dateInput");
-  const submitBtn = document.getElementById("submitBtn");
-  let userName  = "";
-  let userId    = "";
+// =============================================
+// 状態変数
+// =============================================
+let userName = "";
+let userId   = "";
+let liffReady = false;   // init + profile 取得完了フラグ
 
-  // デバッグ表示用関数
-  function showDebug(msg) {
-    let el = document.getElementById("debugArea");
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "debugArea";
-      el.style = "background:#fee;padding:1rem;margin:1rem 0;border-radius:.5rem;font-size:.75rem;word-break:break-all;";
-      document.querySelector(".app").prepend(el);
-    }
-    el.innerHTML += msg + "<br>";
-  }
+const dateInput  = document.getElementById("dateInput");
+const submitBtn  = document.getElementById("submitBtn");
+const submitLabel = document.getElementById("submitLabel");
 
-  submitBtn.disabled = true;
-  submitBtn.textContent = "初期化中...";
+// =============================================
+// デバッグ表示（本番では #debugArea の display:none のまま）
+// 確認したいときだけ .visible クラスを付ける
+// =============================================
+function log(msg) {
+  console.log(msg);
+  const el = document.getElementById("debugArea");
+  // 開発中は下行のコメントを外す → el.classList.add("visible");
+  el.innerHTML += msg + "<br>";
+}
 
-  loadClients();
+// =============================================
+// 日付初期化
+// =============================================
+function toJST(d) {
+  return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
+}
+dateInput.value    = toJST(new Date());
+dateInput.readOnly = true;
 
-  showDebug("🟡 liff.init開始");
+function setDate(type, el) {
+  document.querySelectorAll(".date-tab").forEach(t => t.classList.remove("active"));
+  el.classList.add("active");
+  const now = new Date();
+  if (type === "today")          { dateInput.value = toJST(now);                    dateInput.readOnly = true;  }
+  else if (type === "yesterday") { dateInput.value = toJST(new Date(now - 86400000)); dateInput.readOnly = true;  }
+  else                           {                                                    dateInput.readOnly = false; dateInput.focus(); }
+}
 
-  liff.init({ liffId: LIFF_ID })
-    .then(() => {
-      showDebug("🟢 init成功 / isLoggedIn: " + liff.isLoggedIn());
-      return liff.getProfile();
-    })
-    .then(profile => {
-      showDebug("🟢 profile取得: " + JSON.stringify(profile));
-      if (!profile) return;
-      userName = profile.displayName;
-      userId   = profile.userId;
-    })
-    .catch(err => {
-      showDebug("🔴 エラー: " + err.message);
-    })
-    .finally(() => {
-      showDebug("🏁 finally / userId: " + userId);
-      updateCount();
+// =============================================
+// 訪問先マスタ読み込み
+// =============================================
+function loadClients() {
+  fetch(GAS_URL)
+    .then(r => r.json())
+    .then(clients => renderClients(clients))
+    .catch(() => {
+      log("⚠️ 訪問先マスタ取得失敗 → フォールバック表示");
+      renderClients([
+        { name: "白崎海洋公園", category: "観光" },
+        { name: "中津",         category: "その他" },
+        { name: "かえるの港",   category: "観光" }
+      ]);
     });
+}
 
-  function toJST(d) {
-    return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
+function renderClients(clients) {
+  const area    = document.getElementById("clientsArea");
+  const grouped = {};
+  clients.forEach(c => {
+    const cat = c.category || "その他";
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(c.name);
+  });
+  let html = "";
+  Object.keys(grouped).forEach(cat => {
+    html += `<div class="category"><div class="cat-name">${cat}</div><div class="client-grid">`;
+    grouped[cat].forEach(name => {
+      const id = "c_" + name;
+      html += `
+        <div class="client-card">
+          <input type="checkbox" id="${id}" value="${name}" onchange="updateCount()">
+          <label class="client-label" for="${id}">
+            <span class="check"></span>
+            <span class="client-name">${name}</span>
+          </label>
+        </div>`;
+    });
+    html += `</div></div>`;
+  });
+  area.innerHTML = html;
+}
+
+// =============================================
+// チェック数カウント ＆ ボタン活性判定
+// =============================================
+function updateCount() {
+  const checked = [...document.querySelectorAll("input[type=checkbox]:checked")];
+  document.getElementById("countBadge").textContent = checked.length + "件選択中";
+
+  // liffReady でなければチェックがあってもボタンは押させない
+  if (checked.length > 0 && liffReady) {
+    submitBtn.disabled = false;
+    submitLabel.textContent = `${checked.length}件の訪問を記録する`;
+  } else if (checked.length > 0 && !liffReady) {
+    submitBtn.disabled = true;
+    submitLabel.textContent = "ユーザー情報取得中...";
+  } else {
+    submitBtn.disabled = true;
+    submitLabel.textContent = "訪問先を選択してください";
   }
+}
+
+// =============================================
+// LIFF 初期化 ★ここが核心★
+//
+// profilePromise を外に保持し、submitReport() で await する。
+// これにより「initより先に送信」を完全に防ぐ。
+// =============================================
+const profilePromise = (async () => {
+  try {
+    // 1) LINE アプリ内かどうかを UA で事前チェック（簡易）
+    const isLineUA = /Line\//i.test(navigator.userAgent);
+    if (!isLineUA) {
+      log("⚠️ LINEアプリ外の可能性あり (UA: " + navigator.userAgent + ")");
+      document.getElementById("warnBanner").classList.add("show");
+      // 警告は出すが init は続行（PC の LINE でも UA が異なる場合があるため）
+    }
+
+    log("🟡 liff.init 開始");
+    await liff.init({ liffId: LIFF_ID });
+    log("🟢 liff.init 完了 / isInClient: " + liff.isInClient());
+
+    // 2) LINE アプリ内かどうかを SDK で正確に判定
+    if (!liff.isInClient()) {
+      log("⚠️ liff.isInClient() = false → LINE外ブラウザ");
+      document.getElementById("warnBanner").classList.add("show");
+    }
+
+    // 3) 未ログインなら LINE 認証へリダイレクト
+    if (!liff.isLoggedIn()) {
+      log("🔴 未ログイン → liff.login() を呼ぶ");
+      liff.login({ redirectUri: location.href });
+      return; // login() はページ遷移するのでここで終了
+    }
+
+    // 4) プロフィール取得
+    log("🟡 getProfile 開始");
+    const profile = await liff.getProfile();
+    log("🟢 profile 取得成功: " + JSON.stringify(profile));
+
+    userName = profile.displayName || "";
+    userId   = profile.userId      || "";
+
+  } catch (err) {
+    // LIFF init エラーコードを含めて詳細ログ
+    log("🔴 LIFF エラー: " + (err.code || "") + " / " + err.message);
+    // userId が取れなくてもフォームは使えるようにする（フォールバック）
+  } finally {
+    // 5) init 完了フラグを立てて、ボタン状態を更新
+    liffReady = true;
+    log("🏁 liffReady=true / userId=" + userId + " / userName=" + userName);
+    updateCount(); // フラグが立ったのでボタン活性を再評価
+  }
+})();
+
+// =============================================
+// 送信処理
+// =============================================
+async function submitReport() {
+  const date   = dateInput.value;
+  const memo   = document.getElementById("memoInput").value;
+  const visits = [...document.querySelectorAll("input[type=checkbox]:checked")].map(c => c.value);
+  if (!date || visits.length === 0) return;
+
+  submitBtn.disabled     = true;
+  submitLabel.textContent = "送信中...";
+
+  // ★ profilePromise を await → init/getProfile が終わっていなければここで待つ
+  await profilePromise;
+  log("📤 送信開始 userId=" + userId + " userName=" + userName);
+
+  const payload = {
+    date,
+    visits,
+    memo,
+    userName,
+    userId,
+    reportedAt: new Date().toISOString()
+  };
+
+  // userId が取れなかった場合のフォールバック：GAS 側で手動紐付け用カラムに記録できるよう
+  // isUserIdMissing フラグを付けて送信
+  if (!userId) {
+    payload.isUserIdMissing = true;
+    log("⚠️ userId 未取得のまま送信 → GAS 側で要手動紐付け");
+  }
+
+  try {
+    await fetch(GAS_URL, {
+      method:  "POST",
+      mode:    "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(payload)
+    });
+  } catch (e) {
+    log("🔴 fetch エラー: " + e.message);
+  }
+
+  showSuccess(date, visits, memo);
+}
+
+// =============================================
+// 成功画面
+// =============================================
+function showSuccess(date, visits, memo) {
+  document.getElementById("mainForm").style.display = "none";
+  const sc = document.getElementById("successScreen");
+  sc.classList.add("show");
+
+  const d = date.replace(/-/g, "/");
+  let txt = `<strong>${d}</strong> の訪問先：<br>${visits.join("、")}`;
+  if (memo) txt += `<br><br>📝 ${memo}`;
+
+  // 取れた情報だけ表示（取れなかった場合は表示しない）
+  if (userName) txt += `<br><br>👤 ${userName}`;
+  if (!userId)  txt += `<br><small style="color:#c0392b">※ユーザーID未取得（LINEアプリ内から送信してください）</small>`;
+
+  document.getElementById("successDetail").innerHTML = txt;
+}
+
+// =============================================
+// フォームリセット
+// =============================================
+function resetForm() {
+  document.querySelectorAll("input[type=checkbox]").forEach(c => c.checked = false);
+  document.getElementById("memoInput").value = "";
   dateInput.value    = toJST(new Date());
   dateInput.readOnly = true;
+  document.querySelectorAll(".date-tab").forEach(t => t.classList.remove("active"));
+  document.querySelector('[data-type="today"]').classList.add("active");
+  updateCount();
+  document.getElementById("mainForm").style.display = "";
+  document.getElementById("successScreen").classList.remove("show");
+}
 
-  function setDate(type, el) {
-    document.querySelectorAll(".date-tab").forEach(t => t.classList.remove("active"));
-    el.classList.add("active");
-    const now = new Date();
-    if (type === "today")          { dateInput.value = toJST(now);                      dateInput.readOnly = true;  }
-    else if (type === "yesterday") { dateInput.value = toJST(new Date(now-86400000));   dateInput.readOnly = true;  }
-    else                           {                                                      dateInput.readOnly = false; dateInput.focus(); }
-  }
-
-  function loadClients() {
-    fetch(GAS_URL)
-      .then(r => r.json())
-      .then(clients => renderClients(clients))
-      .catch(() => {
-        renderClients([
-          { name: "白崎海洋公園", category: "観光" },
-          { name: "中津",         category: "その他" },
-          { name: "かえるの港",   category: "観光" }
-        ]);
-      });
-  }
-
-  function renderClients(clients) {
-    const area    = document.getElementById("clientsArea");
-    const grouped = {};
-    clients.forEach(c => {
-      const cat = c.category || "その他";
-      if (!grouped[cat]) grouped[cat] = [];
-      grouped[cat].push(c.name);
-    });
-    let html = "";
-    Object.keys(grouped).forEach(cat => {
-      html += `<div class="category"><div class="cat-name">${cat}</div><div class="client-grid">`;
-      grouped[cat].forEach(name => {
-        const id = "c_" + name;
-        html += `
-          <div class="client-card">
-            <input type="checkbox" id="${id}" value="${name}" onchange="updateCount()">
-            <label class="client-label" for="${id}">
-              <span class="check"></span>
-              <span class="client-name">${name}</span>
-            </label>
-          </div>`;
-      });
-      html += `</div></div>`;
-    });
-    area.innerHTML = html;
-  }
-
-  function updateCount() {
-    const checked = [...document.querySelectorAll("input[type=checkbox]:checked")];
-    document.getElementById("countBadge").textContent = checked.length + "件選択中";
-    if (checked.length > 0) {
-      submitBtn.disabled = false;
-      submitBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> ${checked.length}件の訪問を記録する`;
-    } else {
-      submitBtn.disabled = true;
-      submitBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> 訪問先を選択してください`;
-    }
-  }
-
-  async function submitReport() {
-    const date   = dateInput.value;
-    const memo   = document.getElementById("memoInput").value;
-    const visits = [...document.querySelectorAll("input[type=checkbox]:checked")].map(c => c.value);
-    if (!date || visits.length === 0) return;
-
-    submitBtn.disabled    = true;
-    submitBtn.textContent = "送信中...";
-
-    const payload = { date, visits, memo, userName, userId, reportedAt: new Date().toISOString() };
-
-    try {
-      await fetch(GAS_URL, {
-        method:  "POST",
-        mode:    "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(payload)
-      });
-    } catch (e) {
-      showDebug("送信エラー: " + e.message);
-    }
-
-    showSuccess(date, visits, memo);
-  }
-
-  function showSuccess(date, visits, memo) {
-    document.getElementById("mainForm").style.display = "none";
-    const sc = document.getElementById("successScreen");
-    sc.classList.add("show");
-    const d   = date.replace(/-/g, "/");
-    let txt   = `<strong>${d}</strong> の訪問先：<br>${visits.join("、")}`;
-    if (memo) txt += `<br><br>📝 ${memo}`;
-    txt += `<br><br>👤 ${userName || "名前未取得"}<br>🔑 ${userId || "ID未取得"}`;
-    document.getElementById("successDetail").innerHTML = txt;
-  }
-
-  function resetForm() {
-    document.querySelectorAll("input[type=checkbox]").forEach(c => c.checked = false);
-    document.getElementById("memoInput").value = "";
-    dateInput.value    = toJST(new Date());
-    dateInput.readOnly = true;
-    document.querySelectorAll(".date-tab").forEach(t => t.classList.remove("active"));
-    document.querySelector('[data-type="today"]').classList.add("active");
-    updateCount();
-    document.getElementById("mainForm").style.display = "";
-    document.getElementById("successScreen").classList.remove("show");
-  }
+// =============================================
+// 起動
+// =============================================
+loadClients();
 </script>
 </body>
 </html>
