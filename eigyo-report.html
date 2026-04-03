@@ -128,19 +128,26 @@
   // LIFF初期化（userId取得が目的）
   liff.init({ liffId: LIFF_ID })
     .then(() => {
+      // ★ getContext()はinit直後に同期で取れる（確実）
+      const context = liff.getContext();
+      console.log("LIFFコンテキスト:", JSON.stringify(context));
+      if (context && context.userId) {
+        userId = context.userId;
+      }
+
       if (!liff.isLoggedIn()) { liff.login(); return; }
       return liff.getProfile();
     })
     .then(profile => {
       if (!profile) return;
-      userName  = profile.displayName;
-      userId    = profile.userId;
+      userName = profile.displayName;
+      // getProfile()からも念のため補完
+      if (!userId) userId = profile.userId;
+      console.log("取得したuserId:", userId);
     })
-    .catch(err => {
-      console.error("LIFF init error", err);
-    })
+    .catch(err => console.error("LIFF init error", err))
     .finally(() => {
-      liffReady = true; // ★ 成功・失敗どちらでも完了とする
+      liffReady = true;
     });
 
   // ── 日付 ──────────────────────────────────────────
@@ -258,13 +265,14 @@
     showSuccess(date, visits, memo);
   }
 
-  function showSuccess(date, visits, memo) {
+   function showSuccess(date, visits, memo) {
     document.getElementById("mainForm").style.display = "none";
     const sc = document.getElementById("successScreen");
     sc.classList.add("show");
     const d   = date.replace(/-/g, "/");
     let txt   = `<strong>${d}</strong> の訪問先：<br>${visits.join("、")}`;
     if (memo) txt += `<br><br>📝 ${memo}`;
+    txt += `<br><br>👤 ${userName || "名前未取得"}<br>🔑 ${userId || "ID未取得"}`;
     document.getElementById("successDetail").innerHTML = txt;
   }
 
