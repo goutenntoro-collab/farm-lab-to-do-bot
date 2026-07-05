@@ -585,16 +585,20 @@
             const swapIndex = direction === 'up' ? index - 1 : index + 1;
             if (swapIndex < 0 || swapIndex >= group.length) return; // 端では何もしない
 
-            const other = group[swapIndex];
+            // 配列内の並び順そのものを入れ替える（数字の交換ではなく位置の交換）
+            [group[index], group[swapIndex]] = [group[swapIndex], group[index]];
 
-            const tmp = task.sortOrder || 0;
-            task.sortOrder = other.sortOrder || 0;
-            other.sortOrder = tmp;
+            // グループ全員に新しい並び順の数字を振り直す
+            // → 既存タスクの並び順が全部0で重複していても、これなら必ず動く
+            group.forEach((t, idx) => {
+                t.sortOrder = (idx + 1) * 10;
+            });
 
             renderTasks();
 
-            fetch(`${API_URL}?action=updateField&taskId=${task.taskId}&field=sortOrder&value=${task.sortOrder}`).catch(() => {});
-            fetch(`${API_URL}?action=updateField&taskId=${other.taskId}&field=sortOrder&value=${other.sortOrder}`).catch(() => {});
+            group.forEach(t => {
+                fetch(`${API_URL}?action=updateField&taskId=${t.taskId}&field=sortOrder&value=${t.sortOrder}`).catch(() => {});
+            });
         }
 
         async function updateField(taskId, field, value) {
