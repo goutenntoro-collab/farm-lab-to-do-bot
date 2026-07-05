@@ -312,6 +312,19 @@
             white-space: nowrap;
             border: 1px solid rgba(74, 144, 226, 0.2);
         }
+        /* ★今回新規追加：↑↓並び替えボタン */
+        .order-buttons { display: flex; gap: 4px; }
+        .order-btn {
+            width: 28px;
+            height: 28px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(0,0,0,0.06);
+            font-size: 0.9rem;
+            cursor: pointer;
+            color: var(--text-main);
+        }
+        .order-btn:active { background: rgba(0,0,0,0.12); }
     </style>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 </head>
@@ -427,18 +440,14 @@
                 return catForFilter.includes(activeTab);
             });
 
+            // ★変更点：日付による並び替えを廃止し、同一優先度内は sortOrder（↑↓ボタンで決めた順）で並べる
             filteredTasks.sort((a, b) => {
                 if (a.status === '完了' && b.status !== '完了') return 1;
                 if (a.status !== '完了' && b.status === '完了') return -1;
                 const pA = getPriorityScore(a.priority);
                 const pB = getPriorityScore(b.priority);
                 if (pA !== pB) return pB - pA;
-                const aHas = a.deadline && a.deadline !== '未定' && a.deadline !== '';
-                const bHas = b.deadline && b.deadline !== '未定' && b.deadline !== '';
-                if (aHas && !bHas) return -1;
-                if (!aHas && bHas) return 1;
-                if (aHas && bHas) return new Date(a.deadline) - new Date(b.deadline);
-                return 0;
+                return (a.sortOrder || 0) - (b.sortOrder || 0);
             });
 
             if (filteredTasks.length === 0) {
@@ -500,7 +509,6 @@
                     });
                 }
 
-                // ★ フォーカスが外れたとき(onblur)に追加するよう変更
                 detailsHTML += `<input type="text" class="add-detail-input"
                                        placeholder="＋ 詳細を追加 (入力してキーボード閉じると追加)"
                                        onblur="addNewDetail('${task.taskId}', this)">`;
@@ -550,12 +558,43 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="task-status">${statusBadge}</div>
+                            <div class="task-status" style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+                                ${statusBadge}
+                                <div class="order-buttons">
+                                    <button type="button" class="order-btn" onclick="moveTask('${task.taskId}', 'up')">↑</button>
+                                    <button type="button" class="order-btn" onclick="moveTask('${task.taskId}', 'down')">↓</button>
+                                </div>
+                            </div>
                         </div>
                         <div class="task-details">${detailsHTML}</div>
                     </div>`;
                 container.insertAdjacentHTML('beforeend', html);
             });
+        }
+
+        // ★今回新規追加：↑↓ボタンによる並び替え（同一優先度グループ内のみ）
+        function moveTask(taskId, direction) {
+            const task = globalTasks.find(t => t.taskId === taskId);
+            if (!task) return;
+
+            const group = globalTasks
+                .filter(t => t.priority === task.priority && t.status !== '完了')
+                .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+            const index = group.findIndex(t => t.taskId === taskId);
+            const swapIndex = direction === 'up' ? index - 1 : index + 1;
+            if (swapIndex < 0 || swapIndex >= group.length) return; // 端では何もしない
+
+            const other = group[swapIndex];
+
+            const tmp = task.sortOrder || 0;
+            task.sortOrder = other.sortOrder || 0;
+            other.sortOrder = tmp;
+
+            renderTasks();
+
+            fetch(`${API_URL}?action=updateField&taskId=${task.taskId}&field=sortOrder&value=${task.sortOrder}`).catch(() => {});
+            fetch(`${API_URL}?action=updateField&taskId=${other.taskId}&field=sortOrder&value=${other.sortOrder}`).catch(() => {});
         }
 
         async function updateField(taskId, field, value) {
