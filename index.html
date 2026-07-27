@@ -360,6 +360,24 @@
         let activeTab = '加工';
         let currentEditingTaskId = null;
 
+        // ★今回新規追加：保存の成否をちゃんと見るための共通ヘルパー。
+        // doGetはGAS側で例外が起きても常にHTTP 200を返す(ContentServiceの仕様)ので、
+        // res.okだけを見ていると「サーバー側で失敗しているのに成功したと思い込む」バグになる。
+        // 必ずボディのJSONまで見て、error があれば例外として投げる。
+        async function apiFetch(url) {
+            const res = await fetch(url);
+            let json;
+            try {
+                json = await res.json();
+            } catch (e) {
+                throw new Error('サーバーの応答が不正です');
+            }
+            if (!res.ok || json.error) {
+                throw new Error(json.error || `HTTP ${res.status}`);
+            }
+            return json;
+        }
+
         async function initializeApp() {
             try {
                 await liff.init({ liffId: LIFF_ID });
@@ -573,7 +591,10 @@
         }
 
         // ★今回新規追加：↑↓ボタンによる並び替え（同一優先度グループ内のみ）
-        function moveTask(taskId, direction) {
+        // ★修正：以前はグループ全員分を並列fetchでバラバラに送っていた(例:33件同時)。
+        // GAS側が捌ききれず保存が抜け落ち、「並び順を変えても古いタスクだけ動かない」原因になっていた。
+        // 1回のリクエストにまとめて送り、失敗したら見た目も元に戻す。
+        async function moveTask(taskId, direction) {
             const task = globalTasks.find(t => t.taskId === taskId);
             if (!task) return;
 
@@ -584,6 +605,9 @@
             const index = group.findIndex(t => t.taskId === taskId);
             const swapIndex = direction === 'up' ? index - 1 : index + 1;
             if (swapIndex < 0 || swapIndex >= group.length) return; // 端では何もしない
+
+            // 元の値を保存しておく(失敗時に戻すため)
+            const prevOrders = group.map(t => t.sortOrder);
 
             // 配列内の並び順そのものを入れ替える（数字の交換ではなく位置の交換）
             [group[index], group[swapIndex]] = [group[swapIndex], group[index]];
@@ -596,13 +620,24 @@
 
             renderTasks();
 
-            group.forEach(t => {
-                fetch(`${API_URL}?action=updateField&taskId=${t.taskId}&field=sortOrder&value=${t.sortOrder}`).catch(() => {});
-            });
+            const items = group.map(t => ({ taskId: t.taskId, sortOrder: t.sortOrder }));
+            try {
+                await apiFetch(`${API_URL}?action=reorder&items=${encodeURIComponent(JSON.stringify(items))}`);
+            } catch (e) {
+                group.forEach((t, idx) => { t.sortOrder = prevOrders[idx]; });
+                renderTasks();
+                alert('並び順の保存に失敗しました: ' + e.message);
+            }
         }
 
+        // ★修正：以前はfetchの結果を見ずに「送ったら成功」扱いしていた。
+        // GASのdoGetは例外が起きてもHTTP 200({error:...})を返すため、res.okだけでは
+        // 失敗を検知できず、画面はチェック済み/変更済みのまま、実データは更新されない
+        // ……という「翌日になると戻る」不具合の原因になっていた。
+        // 失敗したら画面側の状態も元に戻し、はっきりエラーを出すようにする。
         async function updateField(taskId, field, value) {
             const task = globalTasks.find(t => t.taskId === taskId);
+            const prevValue = task ? task[field] : undefined;
             if (task) {
                 task[field] = value;
                 if (['assignee', 'category', 'deadline', 'priority'].includes(field)) {
@@ -610,27 +645,33 @@
                 }
             }
             try {
-                await fetch(
+                await apiFetch(
                     `${API_URL}?action=updateField&taskId=${taskId}&field=${field}&value=${encodeURIComponent(value)}`
                 );
-            } catch(e) {
-                alert("更新エラー");
+            } catch (e) {
+                if (task) { task[field] = prevValue; renderTasks(); }
+                alert('更新エラー: ' + e.message);
             }
         }
 
         async function toggleDetail(taskId, detailId, isChecked) {
             const task = globalTasks.find(t => t.taskId === taskId);
             const detail = task.details.find(d => d.detailId === detailId);
+            const prevDone = detail ? detail.isDone : undefined;
+            const prevStatus = task.status;
             if (detail) detail.isDone = isChecked;
             const allDone = task.details.length > 0 && task.details.every(d => d.isDone);
             task.status = allDone ? '完了' : '作業中';
             renderTasks();
             try {
-                await fetch(
+                await apiFetch(
                     `${API_URL}?action=updateDetail&taskId=${taskId}&detailId=${detailId}&isDone=${isChecked}`
                 );
-            } catch(e) {
-                alert("更新エラー");
+            } catch (e) {
+                if (detail) detail.isDone = prevDone;
+                task.status = prevStatus;
+                renderTasks();
+                alert('保存に失敗したのでチェックを元に戻しました: ' + e.message);
             }
         }
 
@@ -639,14 +680,17 @@
             if (!task) return;
             const detail = task.details.find(d => d.detailId === detailId);
             if (!detail) return;
+            const prevContent = detail.content;
             detail.content = newContent;
             renderTasks();
             try {
-                await fetch(
+                await apiFetch(
                     `${API_URL}?action=editDetail&taskId=${taskId}&detailId=${detailId}&content=${encodeURIComponent(newContent)}`
                 );
-            } catch(e) {
-                alert("明細の更新でエラーが発生しました");
+            } catch (e) {
+                detail.content = prevContent;
+                renderTasks();
+                alert('明細の更新でエラーが発生しました: ' + e.message);
             }
         }
 
@@ -655,9 +699,11 @@
             if (!content) return;
 
             const task = globalTasks.find(t => t.taskId === taskId);
+            const tempId = 'temp-' + Date.now();
+            const prevStatus = task ? task.status : undefined;
             if (task) {
                 task.details.push({
-                    detailId: 'temp-' + Date.now(),
+                    detailId: tempId,
                     content: content,
                     targetQuantity: '',
                     isDone: false
@@ -667,11 +713,16 @@
             }
 
             try {
-                await fetch(
+                await apiFetch(
                     `${API_URL}?action=addDetail&taskId=${taskId}&content=${encodeURIComponent(content)}`
                 );
-            } catch(e) {
-                alert("追加通信でエラーが発生しました");
+            } catch (e) {
+                if (task) {
+                    task.details = task.details.filter(d => d.detailId !== tempId);
+                    task.status = prevStatus;
+                    renderTasks();
+                }
+                alert('追加通信でエラーが発生しました: ' + e.message);
             }
         }
 
