@@ -1,0 +1,13 @@
+{
+  "name": "farm-lab-to-do-bot",
+  "displayName": "to doアプリ LIFFフロントエンド",
+  "family": "",
+  "account": "goutenntoro@gmail.com",
+  "claspUser": "",
+  "scriptId": "",
+  "repo": "farm-lab-to-do-bot",
+  "runtime": "GitHub Pages（静的サイト）",
+  "services": ["LINE Login (LIFF)", "GitHub Pages"],
+  "status": "wip",
+  "role": "LIFFタスク管理のフロントエンド。バックエンドは to doアプリ（GAS、_rescue に救出済・未整備）。eigyo-report.html は LINE_営業記録システムとの関係が未検証"
+}
