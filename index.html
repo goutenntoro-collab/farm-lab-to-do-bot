@@ -74,6 +74,185 @@
             transform: translateY(-2px);
         }
         main { padding: 20px; flex: 1; padding-bottom: 60px; }
+
+        /* ============================================================
+           ★配達タブ（今回新規追加）
+           既存のカテゴリータブ（個人/加工/営業…）の列に「配達」を足すと、
+           絞り込みと画面切替という性質の違うものが同じ列に並んでしまう。
+           そこで上段にモード切替を置き、下段の既存タブは中身だけ差し替える。
+           ============================================================ */
+        .mode-switch {
+            display: flex;
+            gap: 8px;
+            padding: 12px 20px 0;
+            background: rgba(255,255,255,0.5);
+        }
+        .mode {
+            flex: 1;
+            text-align: center;
+            padding: 10px 0;
+            border-radius: 12px 12px 0 0;
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            background: rgba(255,255,255,0.45);
+            border: 1px solid var(--border);
+            border-bottom: none;
+            cursor: pointer;
+            transition: all 0.25s;
+        }
+        .mode.active { color: var(--primary); background: var(--surface); box-shadow: inset 0 -3px 0 var(--primary); }
+
+        .delivery-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .delivery-date {
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 600;
+            padding: 8px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-main);
+            outline: none;
+        }
+        .area-heading {
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: var(--primary);
+            margin: 24px 0 10px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+        .area-heading:first-child { margin-top: 0; }
+
+        .dest-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-bottom: 12px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(8px);
+        }
+        .dest-card.done { opacity: 0.55; }
+        .dest-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .dest-name { font-size: 1.05rem; font-weight: 700; color: #111827; }
+        .btn-complete-all {
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 5px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--primary);
+            background: transparent;
+            color: var(--primary);
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .btn-complete-all:active { background: var(--primary); color: #fff; }
+
+        .dl-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.5);
+        }
+        .dl-check {
+            flex: none;
+            width: 24px;
+            height: 24px;
+            accent-color: var(--success);
+            cursor: pointer;
+        }
+        .dl-name { flex: 1; font-size: 0.9rem; font-weight: 500; color: #374151; line-height: 1.45; }
+        .dl-qty {
+            flex: none;
+            width: 62px;
+            text-align: right;
+            font-size: 0.9rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            padding: 6px 8px;
+            border-radius: 8px;
+            border: 1px dashed #d1d5db;
+            background: rgba(255,255,255,0.6);
+            color: var(--text-main);
+            font-family: inherit;
+            outline: none;
+        }
+        .dl-qty:focus { border-color: var(--primary); border-style: solid; background: #fff; }
+        .dl-unit { flex: none; font-size: 0.78rem; color: var(--text-muted); width: 26px; }
+        .dl-breakdown {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            padding: 0 12px 10px 48px;
+            margin-top: -4px;
+            line-height: 1.6;
+        }
+        .btn-delete-dl {
+            flex: none;
+            background: none;
+            border: none;
+            color: #d1d5db;
+            font-size: 1.1rem;
+            cursor: pointer;
+            padding: 0 2px;
+            line-height: 1;
+        }
+        .btn-delete-dl:active { color: var(--danger); }
+
+        .add-delivery {
+            background: var(--surface);
+            border: 1px dashed #9ca3af;
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .add-delivery select, .add-delivery input {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: rgba(255,255,255,0.7);
+            font-size: 0.9rem;
+            font-family: inherit;
+            color: var(--text-main);
+            outline: none;
+        }
+        .add-delivery button {
+            padding: 12px;
+            border-radius: 10px;
+            border: none;
+            background: var(--primary);
+            color: #fff;
+            font-weight: 700;
+            font-size: 0.95rem;
+            font-family: inherit;
+            cursor: pointer;
+        }
+        .add-delivery button:disabled { background: #9ca3af; }
+        .add-delivery-title { font-size: 0.85rem; font-weight: 700; color: var(--text-muted); }
+        .dl-empty { text-align: center; padding: 50px 20px; color: var(--text-muted); font-weight: 500; }
         .task-card {
             background: var(--surface);
             border: 1px solid var(--border);
@@ -336,8 +515,15 @@
             👤 <span id="userNameSpan">未定</span>
         </div>
     </header>
+    <!-- ★上段：やること / 配達 の切替（今回新規追加） -->
+    <div class="mode-switch">
+        <div class="mode active" id="modeTasks" onclick="switchMode('tasks')">やること</div>
+        <div class="mode" id="modeDelivery" onclick="switchMode('delivery')">配達</div>
+    </div>
+    <!-- 下段：既存のタブ。やること＝カテゴリー、配達＝準備/配達 と中身が入れ替わる -->
     <div class="tabs-wrapper" id="tabsContainer"></div>
     <main id="tasksContainer"></main>
+    <main id="deliveryContainer" hidden></main>
 
     <div class="modal-overlay" id="assigneeModal" onclick="if(event.target===this) closeAssigneeModal()">
         <div class="modal-content">
@@ -359,6 +545,25 @@
         let currentUserName = '未定';
         let activeTab = '加工';
         let currentEditingTaskId = null;
+
+        // ★配達タブの状態（今回新規追加）
+        let currentMode = 'tasks';        // 'tasks' | 'delivery'
+        let deliveryPhase = '準備';        // '準備' | '配達'
+        let deliveryData = null;          // { date, destinations, products, deliveries }
+        let deliveryDate = todayString();
+
+        function todayString() {
+            const d = new Date();
+            const p = n => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+        }
+
+        /** HTML属性やテキストに値を差し込む前に必ず通す（店名や商品名に " や < が入っても壊さない） */
+        function esc(s) {
+            return String(s == null ? '' : s)
+                .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
 
         // ★今回新規追加：保存の成否をちゃんと見るための共通ヘルパー。
         // doGetはGAS側で例外が起きても常にHTTP 200を返す(ContentServiceの仕様)ので、
@@ -411,19 +616,353 @@
 
         function renderTabs() {
             const container = document.getElementById('tabsContainer');
-            const tabs = ['個人', '加工', '営業', 'その他', 'すべて'];
+            // ★下段のタブはモードで中身が変わる。
+            // やること＝カテゴリー絞り込み、配達＝1日の流れ（準備→配達）
+            const tabs = currentMode === 'delivery'
+                ? ['準備', '配達']
+                : ['個人', '加工', '営業', 'その他', 'すべて'];
+            const active = currentMode === 'delivery' ? deliveryPhase : activeTab;
             let html = '';
             tabs.forEach(tab => {
-                html += `<div class="tab ${activeTab === tab ? 'active' : ''}"
+                html += `<div class="tab ${active === tab ? 'active' : ''}"
                               onclick="switchTab('${tab}')">${tab}</div>`;
             });
             container.innerHTML = html;
         }
 
         function switchTab(tabName) {
+            if (currentMode === 'delivery') {
+                deliveryPhase = tabName;
+                renderTabs();
+                renderDelivery();
+                return;
+            }
             activeTab = tabName;
             renderTabs();
             renderTasks();
+        }
+
+        /** ★今回新規追加：やること / 配達 の切替 */
+        async function switchMode(mode) {
+            currentMode = mode;
+            document.getElementById('modeTasks').classList.toggle('active', mode === 'tasks');
+            document.getElementById('modeDelivery').classList.toggle('active', mode === 'delivery');
+            document.getElementById('tasksContainer').hidden = (mode !== 'tasks');
+            document.getElementById('deliveryContainer').hidden = (mode !== 'delivery');
+            renderTabs();
+
+            if (mode === 'delivery') {
+                // 初回だけ取りに行く。以降は操作のたびに手元の状態を更新する
+                if (!deliveryData) await loadDeliveries();
+                else renderDelivery();
+            }
+        }
+
+        // ============================================================
+        // ★配達タブ（今回新規追加）
+        // ============================================================
+
+        async function loadDeliveries() {
+            const container = document.getElementById('deliveryContainer');
+            container.innerHTML = `<div class="dl-empty">読み込み中...</div>`;
+            try {
+                deliveryData = await apiFetch(`${API_URL}?action=getDeliveries&date=${deliveryDate}`);
+                renderDelivery();
+            } catch (e) {
+                container.innerHTML =
+                    `<div class="dl-empty" style="color:var(--danger)">
+                        配達データの取得に失敗しました: ${esc(e.message)}
+                     </div>`;
+            }
+        }
+
+        function changeDeliveryDate(value) {
+            if (!value) return;
+            deliveryDate = value;
+            loadDeliveries();
+        }
+
+        function findDest(destId) {
+            return (deliveryData.destinations || []).find(d => d.destId === destId);
+        }
+
+        /** 日付を選ぶバー。準備・配達どちらの画面にも同じものを出す */
+        function deliveryBarHtml() {
+            return `<div class="delivery-bar">
+                        <input type="date" class="delivery-date" value="${deliveryDate}"
+                               onchange="changeDeliveryDate(this.value)">
+                        <span style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">
+                            ${deliveryPhase === '準備' ? '積み込む数の合計' : '方面ごとに回る順'}
+                        </span>
+                    </div>`;
+        }
+
+        function renderDelivery() {
+            if (!deliveryData) return;
+            const container = document.getElementById('deliveryContainer');
+            const list = deliveryData.deliveries || [];
+
+            if (list.length === 0) {
+                container.innerHTML = deliveryBarHtml() +
+                    `<div class="dl-empty">この日の配達はありません 🚚</div>` + addDeliveryFormHtml();
+                return;
+            }
+            container.innerHTML = deliveryBarHtml() +
+                (deliveryPhase === '準備' ? renderPickPhase(list) : renderDeliverPhase(list)) +
+                addDeliveryFormHtml();
+        }
+
+        /**
+         * 準備（積み込み）：商品ごとの合計で並べる。
+         * 倉庫から出す数が一目で分かるようにするため、売り先ごとには並べない。
+         * 内訳は下に薄く出す。
+         */
+        function renderPickPhase(list) {
+            const byProduct = {};
+            list.forEach(d => {
+                if (!byProduct[d.productId]) {
+                    byProduct[d.productId] = { name: d.productName, rows: [] };
+                }
+                byProduct[d.productId].rows.push(d);
+            });
+
+            let html = '<div class="dest-card">';
+            Object.keys(byProduct).forEach(pid => {
+                const g = byProduct[pid];
+                const total = g.rows.reduce((s, r) => s + (r.plannedQty || 0), 0);
+                const allPicked = g.rows.every(r => r.pickedQty !== null);
+                const breakdown = g.rows
+                    .map(r => `${esc((findDest(r.destId) || {}).name || '?')} ${r.plannedQty}`)
+                    .join(' ／ ');
+
+                html += `
+                    <div class="dl-item">
+                        <input type="checkbox" class="dl-check" ${allPicked ? 'checked' : ''}
+                               onchange="togglePick('${esc(pid)}', this.checked)">
+                        <span class="dl-name ${allPicked ? 'completed-text' : ''}">${esc(g.name)}</span>
+                        <span class="dl-qty" style="border:none; background:none;">${total}</span>
+                    </div>
+                    <div class="dl-breakdown">${breakdown}</div>`;
+            });
+            html += '</div>';
+            return html;
+        }
+
+        /** 配達：方面ごと → 売り先ごと。現場で回る順に並べる */
+        function renderDeliverPhase(list) {
+            const byDest = {};
+            list.forEach(d => {
+                if (!byDest[d.destId]) byDest[d.destId] = [];
+                byDest[d.destId].push(d);
+            });
+
+            // 売り先マスタの並び（方面順 → 回る順）をそのまま使う
+            let html = '';
+            let lastArea = null;
+            (deliveryData.destinations || []).forEach(dest => {
+                const rows = byDest[dest.destId];
+                if (!rows || rows.length === 0) return;
+
+                if (dest.area !== lastArea) {
+                    html += `<div class="area-heading">${esc(dest.area)}</div>`;
+                    lastArea = dest.area;
+                }
+
+                const allDone = rows.every(r => r.deliveredQty !== null);
+                html += `
+                    <div class="dest-card ${allDone ? 'done' : ''}">
+                        <div class="dest-head">
+                            <span class="dest-name">${esc(dest.name)}</span>
+                            ${allDone ? '' : `<button class="btn-complete-all"
+                                onclick="completeDestination('${esc(dest.destId)}')">全部完了</button>`}
+                        </div>`;
+
+                rows.forEach(r => {
+                    const done = r.deliveredQty !== null;
+                    const shown = done ? r.deliveredQty
+                                : (r.pickedQty !== null ? r.pickedQty : r.plannedQty);
+                    html += `
+                        <div class="dl-item">
+                            <input type="checkbox" class="dl-check" ${done ? 'checked' : ''}
+                                   onchange="toggleDeliver('${esc(r.deliveryId)}', this.checked)">
+                            <span class="dl-name ${done ? 'completed-text' : ''}">${esc(r.productName)}</span>
+                            <input type="number" class="dl-qty" value="${shown}" inputmode="numeric"
+                                   onchange="changeQty('${esc(r.deliveryId)}', this.value)">
+                            <button class="btn-delete-dl" title="削除"
+                                    onclick="removeDelivery('${esc(r.deliveryId)}')">×</button>
+                        </div>`;
+                });
+                html += '</div>';
+            });
+            return html;
+        }
+
+        /** 「＋配達を追加」。別画面には飛ばさず、同じ画面の中に置く */
+        function addDeliveryFormHtml() {
+            if (!deliveryData) return '';
+            const dests = deliveryData.destinations || [];
+            const prods = deliveryData.products || [];
+
+            let destOpts = '<option value="">売り先を選ぶ</option>';
+            let lastArea = null;
+            dests.forEach(d => {
+                if (d.area !== lastArea) {
+                    if (lastArea !== null) destOpts += '</optgroup>';
+                    destOpts += `<optgroup label="${esc(d.area)}">`;
+                    lastArea = d.area;
+                }
+                destOpts += `<option value="${esc(d.destId)}">${esc(d.name)}</option>`;
+            });
+            if (lastArea !== null) destOpts += '</optgroup>';
+
+            // 商品は105件あるので、販売区分でグループ分けして探しやすくする
+            let prodOpts = '<option value="">商品を選ぶ</option>';
+            let lastKubun = null;
+            prods.forEach(p => {
+                if (p.kubun !== lastKubun) {
+                    if (lastKubun !== null) prodOpts += '</optgroup>';
+                    prodOpts += `<optgroup label="${esc(p.kubun || 'その他')}">`;
+                    lastKubun = p.kubun;
+                }
+                prodOpts += `<option value="${esc(p.productId)}">${esc(p.displayName)}</option>`;
+            });
+            if (lastKubun !== null) prodOpts += '</optgroup>';
+
+            return `
+                <div class="add-delivery">
+                    <span class="add-delivery-title">＋ 配達を追加</span>
+                    <select id="newDeliveryDest">${destOpts}</select>
+                    <select id="newDeliveryProduct">${prodOpts}</select>
+                    <input type="number" id="newDeliveryQty" placeholder="数量" inputmode="numeric" value="1">
+                    <button onclick="submitNewDelivery(this)">この日の配達に追加</button>
+                </div>`;
+        }
+
+        /**
+         * 準備のチェック。商品ごとなので複数行がまとめて動く。
+         * ★1件ずつAPIを叩くと、この画面の並び替えで以前起きたのと同じ
+         *   「保存が抜け落ちる」不具合になるので、必ずまとめて1回で送る。
+         */
+        async function togglePick(productId, checked) {
+            const rows = deliveryData.deliveries.filter(d => d.productId === productId);
+            if (rows.length === 0) return;
+            const prev = rows.map(r => r.pickedQty);
+
+            rows.forEach(r => { r.pickedQty = checked ? r.plannedQty : null; });
+            renderDelivery();
+
+            try {
+                const ids = JSON.stringify(rows.map(r => r.deliveryId));
+                await apiFetch(`${API_URL}?action=setPickedBulk&ids=${encodeURIComponent(ids)}&done=${checked}`);
+            } catch (e) {
+                rows.forEach((r, i) => { r.pickedQty = prev[i]; });
+                renderDelivery();
+                alert('保存に失敗したのでチェックを元に戻しました: ' + e.message);
+            }
+        }
+
+        async function toggleDeliver(deliveryId, checked) {
+            const row = deliveryData.deliveries.find(d => d.deliveryId === deliveryId);
+            if (!row) return;
+            const prev = row.deliveredQty;
+
+            row.deliveredQty = checked
+                ? (row.pickedQty !== null ? row.pickedQty : row.plannedQty)
+                : null;
+            renderDelivery();
+
+            try {
+                await apiFetch(`${API_URL}?action=setDelivered&deliveryId=${encodeURIComponent(deliveryId)}&done=${checked}`);
+            } catch (e) {
+                row.deliveredQty = prev;
+                renderDelivery();
+                alert('保存に失敗したのでチェックを元に戻しました: ' + e.message);
+            }
+        }
+
+        async function completeDestination(destId) {
+            const rows = deliveryData.deliveries.filter(
+                d => d.destId === destId && d.deliveredQty === null
+            );
+            if (rows.length === 0) return;
+            const prev = rows.map(r => r.deliveredQty);
+
+            rows.forEach(r => {
+                r.deliveredQty = (r.pickedQty !== null ? r.pickedQty : r.plannedQty);
+            });
+            renderDelivery();
+
+            try {
+                await apiFetch(`${API_URL}?action=completeDestination&destId=${encodeURIComponent(destId)}&date=${deliveryDate}`);
+            } catch (e) {
+                rows.forEach((r, i) => { r.deliveredQty = prev[i]; });
+                renderDelivery();
+                alert('保存に失敗したので元に戻しました: ' + e.message);
+            }
+        }
+
+        /** 数量の手直し。配達済みなら配達数、まだなら予定数を変える */
+        async function changeQty(deliveryId, value) {
+            const row = deliveryData.deliveries.find(d => d.deliveryId === deliveryId);
+            if (!row) return;
+            const qty = Number(value);
+            if (!isFinite(qty) || qty < 0) { renderDelivery(); return; }
+
+            const wasDelivered = row.deliveredQty !== null;
+            const prevPlanned = row.plannedQty;
+            const prevDelivered = row.deliveredQty;
+
+            try {
+                if (wasDelivered) {
+                    row.deliveredQty = qty;
+                    await apiFetch(`${API_URL}?action=setDelivered&deliveryId=${encodeURIComponent(deliveryId)}&done=true&qty=${qty}`);
+                } else {
+                    row.plannedQty = qty;
+                    await apiFetch(`${API_URL}?action=editDelivery&deliveryId=${encodeURIComponent(deliveryId)}&qty=${qty}`);
+                }
+                renderDelivery();
+            } catch (e) {
+                row.plannedQty = prevPlanned;
+                row.deliveredQty = prevDelivered;
+                renderDelivery();
+                alert('数量の保存に失敗しました: ' + e.message);
+            }
+        }
+
+        async function removeDelivery(deliveryId) {
+            const row = deliveryData.deliveries.find(d => d.deliveryId === deliveryId);
+            if (!row) return;
+            if (!confirm(`「${row.productName}」をこの日の配達から削除しますか？`)) return;
+
+            try {
+                await apiFetch(`${API_URL}?action=deleteDelivery&deliveryId=${encodeURIComponent(deliveryId)}`);
+                deliveryData.deliveries = deliveryData.deliveries.filter(d => d.deliveryId !== deliveryId);
+                renderDelivery();
+            } catch (e) {
+                alert('削除に失敗しました: ' + e.message);
+            }
+        }
+
+        async function submitNewDelivery(btn) {
+            const destId = document.getElementById('newDeliveryDest').value;
+            const productId = document.getElementById('newDeliveryProduct').value;
+            const qty = Number(document.getElementById('newDeliveryQty').value);
+
+            if (!destId || !productId) { alert('売り先と商品を選んでください'); return; }
+            if (!isFinite(qty) || qty <= 0) { alert('数量を入れてください'); return; }
+
+            btn.disabled = true;
+            btn.textContent = '追加中...';
+            try {
+                await apiFetch(`${API_URL}?action=addDelivery&destId=${encodeURIComponent(destId)}`
+                    + `&productId=${encodeURIComponent(productId)}&qty=${qty}&date=${deliveryDate}`);
+                // 追加後はサーバーの状態を正として取り直す（配達IDが要るため）
+                await loadDeliveries();
+            } catch (e) {
+                btn.disabled = false;
+                btn.textContent = 'この日の配達に追加';
+                alert('追加に失敗しました: ' + e.message);
+            }
         }
 
         function getPriorityScore(p) {
