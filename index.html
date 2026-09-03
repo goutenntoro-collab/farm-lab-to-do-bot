@@ -199,6 +199,27 @@
         }
         .dl-qty:focus { border-color: var(--primary); border-style: solid; background: #fff; }
         .dl-unit { flex: none; font-size: 0.78rem; color: var(--text-muted); width: 26px; }
+        .bulk-date {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 10px 14px;
+            margin-bottom: 10px;
+            border-radius: 12px;
+            background: rgba(74, 144, 226, 0.08);
+            border: 1px dashed rgba(74, 144, 226, 0.45);
+        }
+        .bulk-date-label { font-size: 0.82rem; font-weight: 700; color: var(--primary); }
+        .qty-plain {
+            flex: none;
+            font-size: 0.9rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: var(--text-muted);
+            min-width: 34px;
+            text-align: right;
+        }
         .dl-breakdown {
             font-size: 0.75rem;
             color: var(--text-muted);
@@ -619,7 +640,7 @@
             // ★下段のタブはモードで中身が変わる。
             // やること＝カテゴリー絞り込み、配達＝1日の流れ（準備→配達）
             const tabs = currentMode === 'delivery'
-                ? ['準備', '配達']
+                ? ['準備', '配達', '未定']
                 : ['個人', '加工', '営業', 'その他', 'すべて'];
             const active = currentMode === 'delivery' ? deliveryPhase : activeTab;
             let html = '';
@@ -634,7 +655,8 @@
             if (currentMode === 'delivery') {
                 deliveryPhase = tabName;
                 renderTabs();
-                renderDelivery();
+                // ★「未定」は日付で絞らない別の集合なので、サーバーから取り直す必要がある
+                loadDeliveries();
                 return;
             }
             activeTab = tabName;
@@ -665,8 +687,10 @@
         async function loadDeliveries() {
             const container = document.getElementById('deliveryContainer');
             container.innerHTML = `<div class="dl-empty">読み込み中...</div>`;
+            // 「未定」タブのときは日付ではなく「配達日が空の行」を取りに行く
+            const key = (deliveryPhase === '未定') ? '未定' : deliveryDate;
             try {
-                deliveryData = await apiFetch(`${API_URL}?action=getDeliveries&date=${deliveryDate}`);
+                deliveryData = await apiFetch(`${API_URL}?action=getDeliveries&date=${encodeURIComponent(key)}`);
                 renderDelivery();
             } catch (e) {
                 container.innerHTML =
@@ -686,8 +710,16 @@
             return (deliveryData.destinations || []).find(d => d.destId === destId);
         }
 
-        /** 日付を選ぶバー。準備・配達どちらの画面にも同じものを出す */
+        /** 日付を選ぶバー。未定タブは日付で絞らないので出さない */
         function deliveryBarHtml() {
+            if (deliveryPhase === '未定') {
+                return `<div class="delivery-bar">
+                            <span style="font-size:0.9rem; font-weight:700;">日付が決まっていない配達</span>
+                            <span style="font-size:0.8rem; color:var(--text-muted); font-weight:600;">
+                                日付を入れると準備・配達に移ります
+                            </span>
+                        </div>`;
+            }
             return `<div class="delivery-bar">
                         <input type="date" class="delivery-date" value="${deliveryDate}"
                                onchange="changeDeliveryDate(this.value)">
@@ -703,13 +735,103 @@
             const list = deliveryData.deliveries || [];
 
             if (list.length === 0) {
+                const empty = (deliveryPhase === '未定')
+                    ? '日付未定の配達はありません 🎉'
+                    : 'この日の配達はありません 🚚';
                 container.innerHTML = deliveryBarHtml() +
-                    `<div class="dl-empty">この日の配達はありません 🚚</div>` + addDeliveryFormHtml();
+                    `<div class="dl-empty">${empty}</div>` +
+                    (deliveryPhase === '未定' ? '' : addDeliveryFormHtml());
                 return;
             }
-            container.innerHTML = deliveryBarHtml() +
-                (deliveryPhase === '準備' ? renderPickPhase(list) : renderDeliverPhase(list)) +
-                addDeliveryFormHtml();
+
+            let body;
+            if (deliveryPhase === '準備') body = renderPickPhase(list);
+            else if (deliveryPhase === '未定') body = renderUnscheduledPhase(list);
+            else body = renderDeliverPhase(list);
+
+            container.innerHTML = deliveryBarHtml() + body +
+                (deliveryPhase === '未定' ? '' : addDeliveryFormHtml());
+        }
+
+        /**
+         * 未定：日付が決まっていない配達を方面ごとに溜めておく置き場。
+         * 方面ごとにまとめて日付を入れるのが主な使い方で、
+         * 売り先ごとに違う日にしたいときは各カードの日付欄で個別に動かせる。
+         */
+        function renderUnscheduledPhase(list) {
+            const byDest = {};
+            list.forEach(d => {
+                if (!byDest[d.destId]) byDest[d.destId] = [];
+                byDest[d.destId].push(d);
+            });
+
+            // 方面 → その方面に属する売り先、の順にまとめる
+            const areas = [];
+            (deliveryData.destinations || []).forEach(dest => {
+                const rows = byDest[dest.destId];
+                if (!rows || rows.length === 0) return;
+                let area = areas.find(a => a.name === dest.area);
+                if (!area) { area = { name: dest.area, dests: [] }; areas.push(area); }
+                area.dests.push({ dest: dest, rows: rows });
+            });
+
+            let html = '';
+            areas.forEach(area => {
+                const areaIds = [];
+                area.dests.forEach(d => d.rows.forEach(r => areaIds.push(r.deliveryId)));
+                const areaKey = encodeURIComponent(area.name);
+
+                html += `<div class="area-heading">${esc(area.name)}</div>
+                    <div class="bulk-date">
+                        <span class="bulk-date-label">この方面をまとめて</span>
+                        <input type="date" class="delivery-date" id="bulk_${areaKey}"
+                               onchange="applyBulkDate('${areaKey}', ${JSON.stringify(areaIds).replace(/"/g, '&quot;')})">
+                    </div>`;
+
+                area.dests.forEach(({ dest, rows }) => {
+                    const ids = rows.map(r => r.deliveryId);
+                    html += `
+                        <div class="dest-card">
+                            <div class="dest-head">
+                                <span class="dest-name">${esc(dest.name)}</span>
+                                <input type="date" class="delivery-date"
+                                       style="font-size:0.8rem; padding:5px 8px;"
+                                       onchange="applyDateToIds(${JSON.stringify(ids).replace(/"/g, '&quot;')}, this.value)">
+                            </div>`;
+                    rows.forEach(r => {
+                        html += `
+                            <div class="dl-item">
+                                <span class="dl-name">${esc(r.productName)}</span>
+                                <span class="qty-plain">${r.plannedQty}</span>
+                                <button class="btn-delete-dl" title="削除"
+                                        onclick="removeDelivery('${esc(r.deliveryId)}')">×</button>
+                            </div>`;
+                    });
+                    html += '</div>';
+                });
+            });
+            return html;
+        }
+
+        function applyBulkDate(areaKey, ids) {
+            const input = document.getElementById('bulk_' + areaKey);
+            applyDateToIds(ids, input.value);
+        }
+
+        /** 選んだ配達に日付を入れる。入れた分はこの一覧から消えて、その日付の側に移る */
+        async function applyDateToIds(ids, date) {
+            if (!date || !ids || ids.length === 0) return;
+            try {
+                await apiFetch(`${API_URL}?action=setDeliveryDates`
+                    + `&ids=${encodeURIComponent(JSON.stringify(ids))}&date=${date}`);
+                deliveryData.deliveries = deliveryData.deliveries.filter(
+                    d => ids.indexOf(d.deliveryId) === -1
+                );
+                renderDelivery();
+            } catch (e) {
+                alert('日付の保存に失敗しました: ' + e.message);
+                loadDeliveries();
+            }
         }
 
         /**
