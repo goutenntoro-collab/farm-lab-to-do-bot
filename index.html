@@ -4,7 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Task System</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <!--
+      ★Webフォント（Google Fonts）の読み込みをやめた。
+        Inter + Noto Sans JP のCSSだけで354KBあり、その中で400個のフォントファイルが
+        宣言されていた（うち372個が日本語の分割ファイル）。しかもこの読み込みは
+        描画を止める種類のもので、読み終わるまで画面に何も出ない状態だった。
+        LINEから開いて「なかなか出てこない」の主因。
+        スマホには最初から日本語フォント（ヒラギノ／Noto Sans CJK）が入っているので、
+        端末のものを使う。見た目はほとんど変わらず、待ち時間だけが消える。
+    -->
     <style>
         :root {
             --primary: #4A90E2;
@@ -22,7 +30,10 @@
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            /* 端末に入っているフォントを使う（ダウンロードしない） */
+            font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans',
+                         'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Yu Gothic',
+                         Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: linear-gradient(135deg, var(--bg-grad-1), var(--bg-grad-2));
             color: var(--text-main);
             min-height: 100vh;
@@ -210,6 +221,35 @@
             background: rgba(74, 144, 226, 0.08);
             border: 1px dashed rgba(74, 144, 226, 0.45);
         }
+        .badge {
+            background: #ef4444; color: #fff; font-size: 0.68rem; font-weight: 700;
+            min-width: 18px; height: 18px; border-radius: 9px; margin-left: 6px;
+            display: inline-flex; align-items: center; justify-content: center; padding: 0 5px;
+        }
+        .tab.active .badge { background: rgba(255,255,255,0.35); }
+        .tab.empty { opacity: 0.5; }
+
+        .addrow { display: flex; align-items: center; gap: 8px; padding: 8px 4px 0; border-top: 1px dashed #d1d5db; margin-top: 4px; }
+        .addrow-plus { color: #9ca3af; font-weight: 700; }
+        .addrow-input {
+            flex: 1; border: none; background: transparent; font-family: inherit;
+            font-size: 0.86rem; color: var(--text-main); outline: none; padding: 4px 0;
+        }
+        .addrow-input::placeholder { color: #9ca3af; }
+
+        .unlink {
+            font-size: 0.62rem; font-weight: 700; color: #b45309; background: #fef3c7;
+            padding: 2px 6px; border-radius: 6px; margin-left: 6px; white-space: nowrap; cursor: pointer;
+        }
+
+        .add-dest { margin-top: 4px; }
+        .add-dest select {
+            width: 100%; padding: 12px; border-radius: var(--radius);
+            border: 1px dashed #9ca3af; background: rgba(255,255,255,0.4);
+            font-family: inherit; font-size: 0.86rem; font-weight: 600;
+            color: var(--text-muted); outline: none;
+        }
+
         .bulk-date-label { font-size: 0.82rem; font-weight: 700; color: var(--primary); }
 
         /* 各商品行の「準／配」チェック。1行で両方見えるようにする */
@@ -462,17 +502,17 @@
         }
         .add-detail-input:focus { border-color: var(--primary); background: #fff; border-style: solid; }
         .add-detail-input::placeholder { color: #9ca3af; font-weight: 500; }
+        /* ★全画面を覆うのをやめた。ヘッダーとタブは先に見せて、
+           中身の部分だけ「読み込み中」にする。待っている間も何を見ているか分かる */
         #loader {
-            position: fixed;
-            inset: 0;
-            background: rgba(255,255,255,0.9);
             display: flex;
             justify-content: center;
             align-items: center;
             flex-direction: column;
-            z-index: 999;
+            gap: 12px;
+            padding: 70px 20px;
             font-weight: 600;
-            font-size: 1.1rem;
+            font-size: 1rem;
             color: var(--primary);
         }
         .spinner {
@@ -592,7 +632,6 @@
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 </head>
 <body>
-    <div id="loader"><div class="spinner"></div><div id="loadingText">LINEから起動中...</div></div>
     <header>
         <h1>Tasks</h1>
         <div id="userInfo" style="font-size: 0.85rem; font-weight: 600; background: rgba(0,0,0,0.05); padding: 6px 12px; border-radius: 12px; display:flex; align-items:center; gap: 6px;">
@@ -606,7 +645,9 @@
     </div>
     <!-- 下段：既存のタブ。やること＝カテゴリー、配達＝準備/配達 と中身が入れ替わる -->
     <div class="tabs-wrapper" id="tabsContainer"></div>
-    <main id="tasksContainer"></main>
+    <main id="tasksContainer">
+        <div id="loader"><div class="spinner"></div><div id="loadingText">読み込み中...</div></div>
+    </main>
     <main id="deliveryContainer" hidden></main>
 
     <div class="modal-overlay" id="assigneeModal" onclick="if(event.target===this) closeAssigneeModal()">
@@ -667,18 +708,58 @@
             return json;
         }
 
+        /**
+         * ★起動を速くするための工夫（今回追加）
+         *
+         * 以前は liff.init → isLoggedIn → getProfile → GASからデータ取得 を
+         * 1つずつ順番に待っており、そのあいだ読み込み中の丸が全画面を覆っていた。
+         * LINEから開いて「なかなか出てこない」と感じるのはこのため。
+         *
+         * 2回目以降は、前回の利用者IDを端末に覚えておいて、
+         * liff.init の完了を待たずにデータ取得を始める（並行して走らせる）。
+         * LINEの往復1回ぶんを丸ごと省ける。
+         * 覚えていた人と実際の人が違った場合は、取り直すので取り違えは起きない。
+         */
+        const UID_KEY = 'farmlab_uid';
+        const NAME_KEY = 'farmlab_name';
+
+        function readCached(key) {
+            try { return localStorage.getItem(key); } catch (e) { return null; }
+        }
+        function writeCached(key, value) {
+            try { localStorage.setItem(key, value); } catch (e) { /* 使えなくても動く */ }
+        }
+
+        function fetchAppData(uid, displayName) {
+            return apiFetch(`${API_URL}?action=getData&uid=${encodeURIComponent(uid)}`
+                + `&displayName=${encodeURIComponent(displayName || 'LINEユーザー')}`);
+        }
+
         async function initializeApp() {
             try {
+                // 覚えているIDがあれば、LINEの確認を待たずに取得を先に走らせる
+                const cachedUid = readCached(UID_KEY);
+                const earlyFetch = cachedUid
+                    ? fetchAppData(cachedUid, readCached(NAME_KEY)).catch(() => null)
+                    : null;
+
                 await liff.init({ liffId: LIFF_ID });
                 if (!liff.isLoggedIn()) {
                     liff.login();
                     return;
                 }
                 const profile = await liff.getProfile();
-                document.getElementById('loadingText').textContent = 'データ取得中...';
-                const url = `${API_URL}?action=getData&uid=${profile.userId}&displayName=${encodeURIComponent(profile.displayName)}`;
-                const response = await fetch(url);
-                const data = await response.json();
+                writeCached(UID_KEY, profile.userId);
+                writeCached(NAME_KEY, profile.displayName);
+
+                let data = null;
+                if (earlyFetch && cachedUid === profile.userId) {
+                    data = await earlyFetch;   // 先に走らせたぶんが使える
+                }
+                if (!data) {
+                    document.getElementById('loadingText').textContent = 'データ取得中...';
+                    data = await fetchAppData(profile.userId, profile.displayName);
+                }
                 onDataFetched(data);
             } catch (err) {
                 document.getElementById('loader').innerHTML =
@@ -693,7 +774,7 @@
             globalMembers = data.members || [];
             currentUserName = data.currentUserName || '未定';
             document.getElementById('userNameSpan').textContent = currentUserName;
-            document.getElementById('loader').style.display = 'none';
+            const _ld = document.getElementById('loader'); if (_ld) _ld.remove();
             renderTabs();
             renderTasks();
         }
@@ -708,8 +789,18 @@
             const active = currentMode === 'delivery' ? deliveryPhase : activeTab;
             let html = '';
             tabs.forEach(tab => {
-                html += `<div class="tab ${active === tab ? 'active' : ''}"
-                              onclick="switchTab('${tab}')">${tab}</div>`;
+                // 配達モードのタブには「まだ納品していない件数」を出す。
+                // どこが残っているかがタブを見るだけで分かるので、
+                // 画面に説明文を足さずに済む
+                let badge = '';
+                let cls = '';
+                if (currentMode === 'delivery') {
+                    const n = areaPendingCount(tab);
+                    if (n > 0) badge = ` <span class="badge">${n}</span>`;
+                    else cls = ' empty';
+                }
+                html += `<div class="tab ${active === tab ? 'active' : ''}${cls}"
+                              onclick="switchTab('${tab}')">${tab}${badge}</div>`;
             });
             container.innerHTML = html;
         }
@@ -717,6 +808,7 @@
         function switchTab(tabName) {
             if (currentMode === 'delivery') {
                 deliveryPhase = tabName;
+                extraDestIds = [];   // 方面を移ったら、空で開いた売り先は畳む
                 renderTabs();
                 // ★方面の切替は通信しない。取得時に全方面ぶんと未定を受け取っているので、
                 //   手元のデータを絞って描き直すだけ。これでタブ切替が即座に終わる
@@ -786,19 +878,28 @@
             return (deliveryData.destinations || []).find(d => d.destId === destId);
         }
 
-        /** 下段タブに出す方面の一覧。実際に配達がある方面だけを出す */
+        /**
+         * 下段タブに出す方面の一覧。
+         * ★配達がある方面だけでなく、マスタにある方面をすべて常に出す。
+         *   空の方面が出てこないと、そこへ追加しに行けないため。
+         */
         function deliveryAreaTabs() {
             if (!deliveryData) return [];
             const areas = [];
-            (deliveryData.deliveries || []).forEach(d => {
-                const dest = findDest(d.destId);
-                if (dest && areas.indexOf(dest.area) === -1) areas.push(dest.area);
+            (deliveryData.destinations || []).forEach(d => {
+                if (d.area && areas.indexOf(d.area) === -1) areas.push(d.area);
             });
-            // マスタの方面順（和歌山→白浜→通販）に揃える
-            const order = (deliveryData.destinations || []).map(d => d.area);
-            areas.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-            if ((deliveryData.undated || []).length > 0) areas.push('未定');
+            areas.push('未定');
             return areas;
+        }
+
+        /** その方面の「まだ納品していない」件数。タブのバッジに出す */
+        function areaPendingCount(areaName) {
+            if (areaName === '未定') return (deliveryData.undated || []).length;
+            return (deliveryData.deliveries || []).filter(d => {
+                const dest = findDest(d.destId);
+                return dest && dest.area === areaName && d.deliveredQty === null;
+            }).length;
         }
 
         function renderDelivery() {
@@ -808,7 +909,8 @@
 
             if (tabs.length === 0) {
                 container.innerHTML = deliveryBarHtml() +
-                    `<div class="dl-empty">この日の配達はありません 🚚</div>` + addDeliveryFormHtml();
+                    `<div class="dl-empty">この日の配達はありません 🚚</div>`
+                    + addDestHtml() + productDatalistHtml();
                 return;
             }
             // 選ばれている方面が今日の一覧に無ければ、先頭に寄せる
@@ -818,7 +920,7 @@
                 ? renderUndatedArea()
                 : renderArea(deliveryPhase);
 
-            container.innerHTML = deliveryBarHtml() + body + addDeliveryFormHtml();
+            container.innerHTML = deliveryBarHtml() + body + addDestHtml() + productDatalistHtml();
         }
 
         function deliveryBarHtml() {
@@ -833,44 +935,7 @@
             return `<div class="delivery-bar">
                         <input type="date" class="delivery-date" value="${deliveryDate}"
                                onchange="changeDeliveryDate(this.value)">
-                    </div>` + loadSummaryHtml();
-        }
-
-        /**
-         * 積み込み合計。倉庫から出す数は商品ごとの合計でないと分からないが、
-         * 常に開いていると場所を取るので折りたたみにしている。
-         */
-        function loadSummaryHtml() {
-            const rows = (deliveryData.deliveries || []).filter(d => {
-                const dest = findDest(d.destId);
-                return dest && dest.area === deliveryPhase;
-            });
-            if (rows.length === 0) return '';
-
-            const byProduct = {};
-            rows.forEach(d => {
-                if (!byProduct[d.productId]) byProduct[d.productId] = { name: d.productName, qty: 0, done: true };
-                byProduct[d.productId].qty += (d.plannedQty || 0);
-                if (d.pickedQty === null) byProduct[d.productId].done = false;
-            });
-            const keys = Object.keys(byProduct);
-            const allPicked = keys.every(k => byProduct[k].done);
-
-            let inner = '';
-            keys.forEach(k => {
-                const g = byProduct[k];
-                inner += `<div class="sum-row ${g.done ? 'done' : ''}">
-                            <span>${esc(g.name)}</span><b>${g.qty}</b>
-                          </div>`;
-            });
-
-            return `<details class="load-summary" ${allPicked ? '' : 'open'}>
-                        <summary>
-                            積み込み合計（${keys.length}品目）
-                            ${allPicked ? '<span class="sum-ok">準備ずみ</span>' : ''}
-                        </summary>
-                        ${inner}
-                    </details>`;
+                    </div>`;
         }
 
         /** 1つの方面を描く。売り先ごとのカードに、準備と配達のチェックが並ぶ */
@@ -879,30 +944,34 @@
                 const dest = findDest(d.destId);
                 return dest && dest.area === areaName;
             });
-            if (rows.length === 0) return `<div class="dl-empty">この方面の配達はありません</div>`;
+            if (rows.length === 0 && extraDestIds.length === 0) {
+                return `<div class="dl-empty">この方面の配達はありません</div>`;
+            }
 
             const byDest = {};
             rows.forEach(d => {
                 if (!byDest[d.destId]) byDest[d.destId] = [];
                 byDest[d.destId].push(d);
             });
+            // 「売り先を追加」で呼び出した先は、配達が0件でもカードを出す
+            extraDestIds.forEach(id => { if (!byDest[id]) byDest[id] = []; });
 
             let html = '';
             // 売り先マスタの並び（回る順）をそのまま使う
             (deliveryData.destinations || []).forEach(dest => {
                 const items = byDest[dest.destId];
-                if (!items || items.length === 0) return;
+                if (!items) return;
 
-                const allDone = items.every(r => r.deliveredQty !== null);
+                const allDone = items.length > 0 && items.every(r => r.deliveredQty !== null);
                 html += `
                     <div class="dest-card ${allDone ? 'done' : ''}">
                         <div class="dest-head">
                             <span class="dest-name">${esc(dest.name)}</span>
-                            ${allDone ? '<span class="done-badge">配達ずみ</span>'
+                            ${allDone ? '<span class="done-badge">納品ずみ</span>'
                                 : `<button class="btn-complete-all"
                                      onclick="completeDestination('${esc(dest.destId)}')">全部完了</button>`}
                         </div>
-                        <div class="col-legend"><span>準</span><span>配</span></div>`;
+                        <div class="col-legend"><span>積</span><span>納</span></div>`;
 
                 items.forEach(r => {
                     const picked = r.pickedQty !== null;
@@ -911,21 +980,86 @@
                     html += `
                         <div class="dl-item">
                             <input type="checkbox" class="dl-check pick" ${picked ? 'checked' : ''}
-                                   title="準備"
+                                   title="積み込み"
                                    onchange="togglePickOne('${esc(r.deliveryId)}', this.checked)">
                             <input type="checkbox" class="dl-check" ${delivered ? 'checked' : ''}
-                                   title="配達"
+                                   title="納品"
                                    onchange="toggleDeliver('${esc(r.deliveryId)}', this.checked)">
-                            <span class="dl-name ${delivered ? 'completed-text' : ''}">${esc(r.productName)}</span>
+                            <span class="dl-name ${delivered ? 'completed-text' : ''}">${esc(r.productName)}${
+                                r.productId ? '' :
+                                `<span class="unlink" onclick="openLinkPicker('${esc(r.deliveryId)}')">未紐付</span>`
+                            }</span>
                             <input type="number" class="dl-qty" value="${shown}" inputmode="numeric"
                                    onchange="changeQty('${esc(r.deliveryId)}', this.value)">
                             <button class="btn-delete-dl" title="削除"
                                     onclick="removeDelivery('${esc(r.deliveryId)}')">×</button>
                         </div>`;
                 });
+                // ★ToDoの「詳細を追加」と同じ流儀で、その場で商品を足せるようにする。
+                //   打った名前はマスタに無くてもそのまま登録する（入力を止めない）。
+                //   候補は端末の標準機能で出すので、画面に要素を足していない。
+                html += `
+                        <div class="addrow">
+                            <span class="addrow-plus">＋</span>
+                            <input class="addrow-input" list="productList"
+                                   placeholder="商品を追加"
+                                   onkeydown="if(event.key==='Enter'){this.blur();}"
+                                   onblur="addItemToDest('${esc(dest.destId)}', this)">
+                        </div>`;
                 html += '</div>';
             });
             return html;
+        }
+
+        /**
+         * 売り先カードから商品を1つ足す。
+         * 「みかんジュース 5」のように末尾に数量を書けるようにしている
+         * （LINE入力と同じ書き方で通るほうが、覚えることが減る）。
+         */
+        async function addItemToDest(destId, input) {
+            const raw = String(input.value || '').trim();
+            if (!raw) return;
+            input.value = '';
+
+            // 末尾の数字は数量として切り離す。「100g」「1L」は名前の一部なので残す
+            let name = raw, qty = 1;
+            const m = raw.match(/^(.+?)[\s　]*([0-9]+)[\s　]*(個|本|袋|枚|箱)?$/);
+            if (m && m[1].trim()) { name = m[1].trim(); qty = Number(m[2]); }
+
+            // 打った名前がマスタの表示名と一致すれば、その商品として紐付ける
+            const hit = (deliveryData.products || []).find(
+                p => p.displayName === name || p.name === name);
+
+            const date = (deliveryPhase === '未定') ? '' : deliveryDate;
+            try {
+                await apiFetch(`${API_URL}?action=addDelivery&destId=${encodeURIComponent(destId)}`
+                    + `&productId=${encodeURIComponent(hit ? hit.productId : '')}`
+                    + `&name=${encodeURIComponent(name)}`
+                    + `&qty=${qty}&date=${date}`);
+                await loadDeliveries();
+            } catch (e) {
+                alert('追加に失敗しました: ' + e.message);
+            }
+        }
+
+        /** 手入力の商品を、あとからマスタの商品に紐付ける */
+        async function openLinkPicker(deliveryId) {
+            const row = findDelivery(deliveryId);
+            if (!row) return;
+            const list = (deliveryData.products || []);
+            const names = list.map((p, i) => `${i + 1}. ${p.displayName}`).join('\n');
+            const ans = prompt(`「${row.productName}」をどの商品に紐付けますか？\n番号で答えてください。\n\n${names}`);
+            const idx = parseInt(ans, 10);
+            if (!(idx >= 1 && idx <= list.length)) return;
+
+            try {
+                await apiFetch(`${API_URL}?action=linkProduct`
+                    + `&deliveryId=${encodeURIComponent(deliveryId)}`
+                    + `&productId=${encodeURIComponent(list[idx - 1].productId)}`);
+                await loadDeliveries();
+            } catch (e) {
+                alert('紐付けに失敗しました: ' + e.message);
+            }
         }
 
         /** 未定：方面ごとにまとめ、日付を入れるとその日の側へ移る */
@@ -1010,47 +1144,43 @@
             }
         }
 
-        /** 「＋配達を追加」。別画面に飛ばさず同じ画面の中に置く */
-        function addDeliveryFormHtml() {
-            if (!deliveryData) return '';
-            const dests = deliveryData.destinations || [];
-            const prods = deliveryData.products || [];
+        /**
+         * 打つと候補が出るようにするための一覧。
+         * 端末の標準機能（datalist）なので、画面には何も表示されない。
+         * これで表記ゆれのほとんどは、こちらが何もしなくても防げる。
+         */
+        function productDatalistHtml() {
+            const prods = (deliveryData.products || []);
+            return `<datalist id="productList">${
+                prods.map(p => `<option value="${esc(p.displayName)}">`).join('')
+            }</datalist>`;
+        }
 
-            let destOpts = '<option value="">売り先を選ぶ</option>';
-            let lastArea = null;
-            dests.forEach(d => {
-                if (d.area !== lastArea) {
-                    if (lastArea !== null) destOpts += '</optgroup>';
-                    destOpts += `<optgroup label="${esc(d.area)}">`;
-                    lastArea = d.area;
-                }
-                destOpts += `<option value="${esc(d.destId)}">${esc(d.name)}</option>`;
-            });
-            if (lastArea !== null) destOpts += '</optgroup>';
+        /** その方面に、まだ今日の配達が無い売り先を足す */
+        function addDestHtml() {
+            if (!deliveryData || deliveryPhase === '未定') return '';
+            const shown = new Set((deliveryData.deliveries || []).map(d => d.destId));
+            const rest = (deliveryData.destinations || [])
+                .filter(d => d.area === deliveryPhase && !shown.has(d.destId));
+            if (rest.length === 0) return '';
 
-            // 商品は100件以上あるので、販売区分でグループ分けして探しやすくする
-            let prodOpts = '<option value="">商品を選ぶ</option>';
-            let lastKubun = null;
-            prods.forEach(p => {
-                if (p.kubun !== lastKubun) {
-                    if (lastKubun !== null) prodOpts += '</optgroup>';
-                    prodOpts += `<optgroup label="${esc(p.kubun || 'その他')}">`;
-                    lastKubun = p.kubun;
-                }
-                prodOpts += `<option value="${esc(p.productId)}">${esc(p.displayName)}</option>`;
-            });
-            if (lastKubun !== null) prodOpts += '</optgroup>';
+            return `<div class="add-dest">
+                        <select onchange="showDest(this.value); this.value='';">
+                            <option value="">＋ この方面の売り先を追加</option>
+                            ${rest.map(d => `<option value="${esc(d.destId)}">${esc(d.name)}</option>`).join('')}
+                        </select>
+                    </div>`;
+        }
 
-            return `
-                <details class="add-delivery">
-                    <summary class="add-delivery-title">＋ 配達を追加</summary>
-                    <select id="newDeliveryDest">${destOpts}</select>
-                    <select id="newDeliveryProduct">${prodOpts}</select>
-                    <input type="number" id="newDeliveryQty" placeholder="数量" inputmode="numeric" value="1">
-                    <button onclick="submitNewDelivery(this)">
-                        ${deliveryPhase === '未定' ? '日付未定で追加' : 'この日の配達に追加'}
-                    </button>
-                </details>`;
+        /**
+         * 売り先のカードを空のまま出す。
+         * まだ配達が1件も無いので、カードだけ先に出して商品を足せる状態にする。
+         */
+        let extraDestIds = [];
+        function showDest(destId) {
+            if (!destId || extraDestIds.indexOf(destId) !== -1) return;
+            extraDestIds.push(destId);
+            renderDelivery();
         }
 
         /** 準備のチェック（1行ぶん） */
