@@ -242,6 +242,18 @@
             padding: 2px 6px; border-radius: 6px; margin-left: 6px; white-space: nowrap; cursor: pointer;
         }
 
+        /* 今日の配達が無い売り先。控えめな1行で、追加だけできる */
+        .dest-idle {
+            display: flex; align-items: center; gap: 12px;
+            padding: 11px 16px; margin-bottom: 8px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.4);
+            border: 1px dashed rgba(0,0,0,0.08);
+        }
+        .idle-name {
+            flex: none; font-size: 0.9rem; font-weight: 600;
+            color: var(--text-muted); min-width: 5.5em;
+        }
         .add-dest { margin-top: 4px; }
         .add-dest select {
             width: 100%; padding: 12px; border-radius: var(--radius);
@@ -808,7 +820,6 @@
         function switchTab(tabName) {
             if (currentMode === 'delivery') {
                 deliveryPhase = tabName;
-                extraDestIds = [];   // 方面を移ったら、空で開いた売り先は畳む
                 renderTabs();
                 // ★方面の切替は通信しない。取得時に全方面ぶんと未定を受け取っているので、
                 //   手元のデータを絞って描き直すだけ。これでタブ切替が即座に終わる
@@ -910,7 +921,7 @@
             if (tabs.length === 0) {
                 container.innerHTML = deliveryBarHtml() +
                     `<div class="dl-empty">この日の配達はありません 🚚</div>`
-                    + addDestHtml() + productDatalistHtml();
+                    + productDatalistHtml();
                 return;
             }
             // 選ばれている方面が今日の一覧に無ければ、先頭に寄せる
@@ -920,7 +931,7 @@
                 ? renderUndatedArea()
                 : renderArea(deliveryPhase);
 
-            container.innerHTML = deliveryBarHtml() + body + addDestHtml() + productDatalistHtml();
+            container.innerHTML = deliveryBarHtml() + body + productDatalistHtml();
         }
 
         function deliveryBarHtml() {
@@ -944,23 +955,25 @@
                 const dest = findDest(d.destId);
                 return dest && dest.area === areaName;
             });
-            if (rows.length === 0 && extraDestIds.length === 0) {
-                return `<div class="dl-empty">この方面の配達はありません</div>`;
-            }
+
 
             const byDest = {};
             rows.forEach(d => {
                 if (!byDest[d.destId]) byDest[d.destId] = [];
                 byDest[d.destId].push(d);
             });
-            // 「売り先を追加」で呼び出した先は、配達が0件でもカードを出す
-            extraDestIds.forEach(id => { if (!byDest[id]) byDest[id] = []; });
+
+            // ★その方面の売り先はすべて画面に出す。
+            //   カードが出ていない売り先には商品を足せないため。
+            //   ただし10軒ぶんを全部カードにすると画面が埋まるので、
+            //   配達がある先はカード、無い先は下に薄い1行にして差をつける。
+            const areaDests = (deliveryData.destinations || []).filter(d => d.area === areaName);
+            const withItems = areaDests.filter(d => byDest[d.destId]);
+            const without = areaDests.filter(d => !byDest[d.destId]);
 
             let html = '';
-            // 売り先マスタの並び（回る順）をそのまま使う
-            (deliveryData.destinations || []).forEach(dest => {
+            withItems.forEach(dest => {
                 const items = byDest[dest.destId];
-                if (!items) return;
 
                 const allDone = items.length > 0 && items.every(r => r.deliveredQty !== null);
                 html += `
@@ -1007,6 +1020,18 @@
                                    onblur="addItemToDest('${esc(dest.destId)}', this)">
                         </div>`;
                 html += '</div>';
+            });
+
+            // 今日の配達が無い売り先。名前と追加欄だけの薄い行にする
+            without.forEach(dest => {
+                html += `
+                    <div class="dest-idle">
+                        <span class="idle-name">${esc(dest.name)}</span>
+                        <input class="addrow-input" list="productList"
+                               placeholder="＋ 商品を追加"
+                               onkeydown="if(event.key==='Enter'){this.blur();}"
+                               onblur="addItemToDest('${esc(dest.destId)}', this)">
+                    </div>`;
             });
             return html;
         }
@@ -1154,33 +1179,6 @@
             return `<datalist id="productList">${
                 prods.map(p => `<option value="${esc(p.displayName)}">`).join('')
             }</datalist>`;
-        }
-
-        /** その方面に、まだ今日の配達が無い売り先を足す */
-        function addDestHtml() {
-            if (!deliveryData || deliveryPhase === '未定') return '';
-            const shown = new Set((deliveryData.deliveries || []).map(d => d.destId));
-            const rest = (deliveryData.destinations || [])
-                .filter(d => d.area === deliveryPhase && !shown.has(d.destId));
-            if (rest.length === 0) return '';
-
-            return `<div class="add-dest">
-                        <select onchange="showDest(this.value); this.value='';">
-                            <option value="">＋ この方面の売り先を追加</option>
-                            ${rest.map(d => `<option value="${esc(d.destId)}">${esc(d.name)}</option>`).join('')}
-                        </select>
-                    </div>`;
-        }
-
-        /**
-         * 売り先のカードを空のまま出す。
-         * まだ配達が1件も無いので、カードだけ先に出して商品を足せる状態にする。
-         */
-        let extraDestIds = [];
-        function showDest(destId) {
-            if (!destId || extraDestIds.indexOf(destId) !== -1) return;
-            extraDestIds.push(destId);
-            renderDelivery();
         }
 
         /** 準備のチェック（1行ぶん） */
