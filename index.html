@@ -228,6 +228,7 @@
             flex: none;
             width: 24px;
             height: 24px;
+            margin: 0 10px;   /* ★見出し（.col-legend span）の44pxと中心を揃えるため */
             accent-color: var(--success);
             cursor: pointer;
         }
@@ -330,7 +331,10 @@
             color: var(--text-muted);
             letter-spacing: 0.05em;
         }
-        .col-legend span { width: 24px; text-align: center; }
+        /* ★見出しを英語の単語にしたので、24px では文字が入らない。
+           チェックボックス側にも同じ余白を付けて、列の中心を揃えている
+           （.dl-check の margin と、この width を必ず対で直すこと） */
+        .col-legend span { width: 44px; text-align: center; font-size: 0.55rem; letter-spacing: 0.02em; }
         .dl-check.pick { accent-color: var(--primary); }
         .done-badge {
             font-size: 0.72rem;
@@ -342,41 +346,6 @@
             white-space: nowrap;
         }
 
-        /* 積み込み合計。常に開いていると場所を取るので折りたたみ */
-        .load-summary {
-            width: 100%;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 10px 14px;
-            margin-bottom: 14px;
-            box-shadow: var(--shadow);
-        }
-        .load-summary summary {
-            font-size: 0.85rem;
-            font-weight: 700;
-            color: var(--primary);
-            cursor: pointer;
-            list-style: none;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .load-summary summary::-webkit-details-marker { display: none; }
-        .load-summary summary::before { content: '▸'; transition: transform 0.2s; }
-        .load-summary[open] summary::before { transform: rotate(90deg); }
-        .sum-ok { font-size: 0.7rem; color: #047857; background: #d1fae5; padding: 2px 8px; border-radius: 10px; }
-        .sum-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 7px 2px 7px 16px;
-            font-size: 0.85rem;
-            border-top: 1px solid var(--border);
-        }
-        .sum-row:first-of-type { margin-top: 8px; }
-        .sum-row b { font-variant-numeric: tabular-nums; }
-        .sum-row.done { color: var(--text-muted); text-decoration: line-through; }
         .qty-plain {
             flex: none;
             font-size: 0.9rem;
@@ -1013,7 +982,13 @@
         //
         // 準備と配達を別画面にしていたが、実際は同じ人が同じ日に両方やるので、
         // 行き来させる意味がなかった。1行で両方見えるほうが一目で分かる。
-        // 倉庫で積む数は「積み込み合計」を上に折りたたみで置いて残している。
+        //
+        // ★チェックは READY / DELIVER の2つ。
+        //   READY  ＝ 加工場で用意できた（トラックに積む話ではない。以前「積」と
+        //             書いていたが、加工場の準備のことなので言葉が間違っていた）
+        //   DELIVER＝ 持って行った
+        //   配達する人は何も打たない。チェックを押すだけで、数は押した時点の
+        //   予定数がそのまま入る（委託販売なので、正確な数は月末の売上報告で確定する）。
         //
         // 速度について：
         //   取得はサーバーへ1回だけ。タブの切替はすべて手元のデータを絞るだけで、
@@ -1281,7 +1256,7 @@
                                 : `<button class="btn-complete-all"
                                      onclick="completeDestination('${esc(dest.destId)}')">全部完了</button>`}
                         </div>
-                        <div class="col-legend"><span>積</span><span>納</span></div>`;
+                        <div class="col-legend"><span>READY</span><span>DELIVER</span></div>`;
 
                 items.forEach(r => {
                     const picked = r.pickedQty !== null;
@@ -1290,10 +1265,10 @@
                     html += `
                         <div class="dl-item">
                             <input type="checkbox" class="dl-check pick" ${picked ? 'checked' : ''}
-                                   title="積み込み"
+                                   title="READY（加工場で用意できた）"
                                    onchange="togglePickOne('${esc(r.deliveryId)}', this.checked)">
                             <input type="checkbox" class="dl-check" ${delivered ? 'checked' : ''}
-                                   title="納品"
+                                   title="DELIVER（持って行った）"
                                    onchange="toggleDeliver('${esc(r.deliveryId)}', this.checked)">
                             <input type="text" class="dl-name-input ${delivered ? 'completed-text' : ''}"
                                    value="${esc(r.productName)}" list="productList"
