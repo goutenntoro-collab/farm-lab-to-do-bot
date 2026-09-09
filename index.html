@@ -215,10 +215,14 @@
         }
         .btn-complete-all:active { background: var(--primary); color: #fff; }
 
+        /* ★1行の幅の配分に注意。固定幅（チェック2つ・数量・×）とすき間の合計が
+           画面幅を超えると、flex:1 の商品名がゼロまで潰れて何も見えなくなる。
+           実際に READY/DELIVER の見出しを入れたとき、名前が30pxまで潰れて消えた。
+           ここの数字を触るときは、必ず実機の狭い画面で名前が読めるか確かめること。 */
         .dl-item {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             padding: 10px 12px;
             margin-bottom: 8px;
             border-radius: 12px;
@@ -228,14 +232,16 @@
             flex: none;
             width: 24px;
             height: 24px;
-            margin: 0 10px;   /* ★見出し（.col-legend span）の44pxと中心を揃えるため */
+            margin: 0 6px;    /* ★見出し（.col-legend span）の36pxと中心を揃えるため */
             accent-color: var(--success);
             cursor: pointer;
         }
         .dl-name { flex: 1; font-size: 0.9rem; font-weight: 500; color: #374151; line-height: 1.45; }
-        /* ★商品名は打ち間違えたら直せる必要がある。やること側の明細と同じで、
-           見た目は文字のまま、実体は入力欄にする（タップして初めて編集できる、
-           という新しい操作を覚えさせないため） */
+        /* ★商品名は自由入力。マスタから選ばせない。
+           委託販売なので現場では雑に書ければよく、マスタの候補が106件ぶわっと
+           出てくるほうが手を止める。名寄せはLINEで会話しながら入れるときだけ行う。
+           見た目は文字のまま、実体は入力欄にする（やること側の明細と同じ作り。
+           タップして初めて編集できる、という新しい操作を覚えさせないため） */
         .dl-name-input {
             flex: 1; min-width: 0;
             font-size: 0.9rem; font-weight: 500; color: #374151; line-height: 1.45;
@@ -249,7 +255,7 @@
         .dl-name-input.completed-text { text-decoration: line-through; color: var(--text-muted); }
         .dl-qty {
             flex: none;
-            width: 62px;
+            width: 52px;
             text-align: right;
             font-size: 0.9rem;
             font-weight: 700;
@@ -293,11 +299,6 @@
         /* ★今回新規追加：「＋ この方面に売り先を追加」の未入力時の見た目 */
         .add-dest-label { flex: 1; font-size: 0.86rem; color: #9ca3af; font-weight: 600; cursor: pointer; }
 
-        .unlink {
-            font-size: 0.62rem; font-weight: 700; color: #b45309; background: #fef3c7;
-            padding: 2px 6px; border-radius: 6px; margin-left: 6px; white-space: nowrap; cursor: pointer;
-            flex: none; align-self: center;
-        }
 
         /* 今日の配達が無い売り先。控えめな1行で、追加だけできる */
         .dest-idle {
@@ -324,7 +325,7 @@
         /* 各商品行の「準／配」チェック。1行で両方見えるようにする */
         .col-legend {
             display: flex;
-            gap: 12px;
+            gap: 10px;
             padding: 0 12px 4px;
             font-size: 0.68rem;
             font-weight: 700;
@@ -334,7 +335,7 @@
         /* ★見出しを英語の単語にしたので、24px では文字が入らない。
            チェックボックス側にも同じ余白を付けて、列の中心を揃えている
            （.dl-check の margin と、この width を必ず対で直すこと） */
-        .col-legend span { width: 44px; text-align: center; font-size: 0.55rem; letter-spacing: 0.02em; }
+        .col-legend span { width: 36px; text-align: center; font-size: 0.52rem; letter-spacing: 0; }
         .dl-check.pick { accent-color: var(--primary); }
         .done-badge {
             font-size: 0.72rem;
@@ -1151,7 +1152,7 @@
             if (tabs.length === 0) {
                 container.innerHTML = deliveryBarHtml() +
                     `<div class="dl-empty">この日の配達はありません 🚚</div>`
-                    + productDatalistHtml();
+                    ;
                 return;
             }
             // 選ばれている方面が今日の一覧に無ければ、先頭に寄せる
@@ -1161,7 +1162,7 @@
                 ? renderUndatedArea()
                 : renderArea(deliveryPhase);
 
-            container.innerHTML = deliveryBarHtml() + body + productDatalistHtml();
+            container.innerHTML = deliveryBarHtml() + body;
         }
 
         function deliveryBarHtml() {
@@ -1271,10 +1272,8 @@
                                    title="DELIVER（持って行った）"
                                    onchange="toggleDeliver('${esc(r.deliveryId)}', this.checked)">
                             <input type="text" class="dl-name-input ${delivered ? 'completed-text' : ''}"
-                                   value="${esc(r.productName)}" list="productList"
+                                   value="${esc(r.productName)}"
                                    onchange="updateItemName('${esc(r.deliveryId)}', this.value)">
-                            ${r.productId ? '' :
-                                `<span class="unlink" onclick="openLinkPicker('${esc(r.deliveryId)}')">未紐付</span>`}
                             <input type="number" class="dl-qty" value="${shown}" inputmode="numeric"
                                    onchange="changeQty('${esc(r.deliveryId)}', this.value)">
                             <button class="btn-delete-dl" title="削除"
@@ -1287,7 +1286,7 @@
                 html += `
                         <div class="addrow">
                             <span class="addrow-plus">＋</span>
-                            <input class="addrow-input" list="productList"
+                            <input class="addrow-input"
                                    placeholder="商品を追加"
                                    onkeydown="if(event.key==='Enter'){this.blur();}"
                                    onblur="addItemToDest('${esc(dest.destId)}', this)">
@@ -1302,7 +1301,7 @@
                     <div class="dest-idle">
                         <span class="idle-name">${esc(dest.name)}</span>
                         ${orderButtonsHtml(dest.destId, true, 'without', oi, without.length)}
-                        <input class="addrow-input" list="productList"
+                        <input class="addrow-input"
                                placeholder="＋ 商品を追加"
                                onkeydown="if(event.key==='Enter'){this.blur();}"
                                onblur="addItemToDest('${esc(dest.destId)}', this)">
@@ -1472,29 +1471,6 @@
             renderDelivery();
         }
 
-        /** 手入力の商品を、あとからマスタの商品に紐付ける */
-        async function openLinkPicker(deliveryId) {
-            const row = findDelivery(deliveryId);
-            if (!row) return;
-            const list = (deliveryData.products || []);
-            const names = list.map((p, i) => `${i + 1}. ${p.displayName}`).join('\n');
-            const ans = prompt(`「${row.productName}」をどの商品に紐付けますか？\n番号で答えてください。\n\n${names}`);
-            const idx = parseInt(ans, 10);
-            if (!(idx >= 1 && idx <= list.length)) return;
-
-            try {
-                // ★修正：linkProductも結果（紐付け後のproductId/productName）を返すので、
-                // 全件取り直さず該当行を書き換えるだけにする
-                const res = await apiFetch(`${API_URL}?action=linkProduct`
-                    + `&deliveryId=${encodeURIComponent(deliveryId)}`
-                    + `&productId=${encodeURIComponent(list[idx - 1].productId)}`);
-                row.productId = res.productId;
-                row.productName = res.productName;
-                renderDelivery();
-            } catch (e) {
-                alert('紐付けに失敗しました: ' + e.message);
-            }
-        }
 
         /** 未定：方面ごとにまとめ、日付を入れるとその日の側へ移る */
         function renderUndatedArea() {
@@ -1542,7 +1518,7 @@
                         html += `
                             <div class="dl-item">
                                 <input type="text" class="dl-name-input"
-                                       value="${esc(r.productName)}" list="productList"
+                                       value="${esc(r.productName)}"
                                        onchange="updateItemName('${esc(r.deliveryId)}', this.value)">
                                 <span class="qty-plain">${r.plannedQty}</span>
                                 <button class="btn-delete-dl" title="削除"
@@ -1580,17 +1556,6 @@
             }
         }
 
-        /**
-         * 打つと候補が出るようにするための一覧。
-         * 端末の標準機能（datalist）なので、画面には何も表示されない。
-         * これで表記ゆれのほとんどは、こちらが何もしなくても防げる。
-         */
-        function productDatalistHtml() {
-            const prods = (deliveryData.products || []);
-            return `<datalist id="productList">${
-                prods.map(p => `<option value="${esc(p.displayName)}">`).join('')
-            }</datalist>`;
-        }
 
         /** 準備のチェック（1行ぶん） */
         async function togglePickOne(deliveryId, checked) {
