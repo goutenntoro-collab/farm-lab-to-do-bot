@@ -85,6 +85,16 @@
             transform: translateY(-2px);
         }
         main { padding: 20px; flex: 1; padding-bottom: 60px; }
+        /* ★裏で取り直している間の控えめな帯（今回新規追加）。全画面を覆う類とは別物 */
+        .sync-banner {
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-align: center;
+            padding: 5px 10px;
+            color: var(--text-muted);
+            background: rgba(0,0,0,0.03);
+        }
+        .sync-banner.error { color: var(--danger); background: rgba(239, 68, 68, 0.08); }
 
         /* ============================================================
            ★配達タブ（今回新規追加）
@@ -690,6 +700,9 @@
     </div>
     <!-- 下段：既存のタブ。やること＝カテゴリー、配達＝準備/配達 と中身が入れ替わる -->
     <div class="tabs-wrapper" id="tabsContainer"></div>
+    <!-- ★裏で取り直している間だけ出す控えめな帯（今回新規追加）。
+         やること／配達どちらの中身にも触れない、独立した要素にしてある -->
+    <div class="sync-banner" id="syncBanner" hidden></div>
     <main id="tasksContainer">
         <div id="loader"><div class="spinner"></div><div id="loadingText">読み込み中...</div></div>
     </main>
@@ -754,7 +767,7 @@
         }
 
         /**
-         * ★起動を速くするための工夫（今回追加）
+         * ★起動を速くするための工夫
          *
          * 以前は liff.init → isLoggedIn → getProfile → GASからデータ取得 を
          * 1つずつ順番に待っており、そのあいだ読み込み中の丸が全画面を覆っていた。
@@ -764,6 +777,13 @@
          * liff.init の完了を待たずにデータ取得を始める（並行して走らせる）。
          * LINEの往復1回ぶんを丸ごと省ける。
          * 覚えていた人と実際の人が違った場合は、取り直すので取り違えは起きない。
+         *
+         * ★さらに今回追加：やること・配達の両方を initializeApp() から並行して
+         * 取りに行く（配達タブを押した瞬間に取得していた旧来の作りをやめた）うえ、
+         * 前回のレスポンスをlocalStorageに残しておき、認証すら待たずにまず
+         * それを描く（stale-while-revalidate。詳しくは readJsonCache/writeJsonCache、
+         * doLoadDeliveries のコメント参照）。裏で取り直している間は画面のどこかに
+         * 「更新中…」と控えめに出すだけで、全画面を覆う読み込み中は出さない。
          */
         const UID_KEY = 'farmlab_uid';
         const NAME_KEY = 'farmlab_name';
@@ -775,18 +795,100 @@
             try { localStorage.setItem(key, value); } catch (e) { /* 使えなくても動く */ }
         }
 
+        /**
+         * ★stale-while-revalidate用のキャッシュ（今回追加）。
+         * 起動時に前回のデータを先に見せ、裏で取り直して差し替えるための土台。
+         * 保存時刻を一緒に持たせ、24時間より古いものは「描かずに」捨てる
+         * （古いキャッシュをうっかり正として見せると、特に配達は誤配につながるため）。
+         */
+        const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+        const TASKS_CACHE_KEY = 'farmlab_tasks';
+        function deliveryCacheKey(date) { return `farmlab_deliveries_${date}`; } // 日付を含める。他日のデータを出さないため
+
+        function writeJsonCache(key, data) {
+            try { writeCached(key, JSON.stringify({ savedAt: Date.now(), data: data })); } catch (e) { /* 使えなくても動く */ }
+        }
+        function readJsonCache(key) {
+            const raw = readCached(key);
+            if (!raw) return null;
+            try {
+                const parsed = JSON.parse(raw);
+                if (!parsed || typeof parsed.savedAt !== 'number') return null;
+                if (Date.now() - parsed.savedAt > CACHE_MAX_AGE_MS) return null; // 古すぎるので使わない
+                return parsed.data;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        /**
+         * ★裏で取り直している間、控えめに出す「更新中…」（今回追加）。
+         * tasks/deliveryそれぞれ独立に持つ。全画面を覆う読み込み中とは別物で、
+         * 既存のUIの上に小さく重ねるだけ。取得に失敗してもキャッシュ表示は消さず、
+         * ここにエラーだけ出す。
+         */
+        const syncState = {
+            tasks: { pending: false, error: null },
+            delivery: { pending: false, error: null },
+        };
+        function syncStart(key) {
+            syncState[key].pending = true;
+            syncState[key].error = null;
+            renderSyncBanner();
+        }
+        function syncEnd(key, errorMessage) {
+            syncState[key].pending = false;
+            syncState[key].error = errorMessage || null;
+            renderSyncBanner();
+        }
+        function renderSyncBanner() {
+            const el = document.getElementById('syncBanner');
+            if (!el) return;
+            if (syncState.tasks.pending || syncState.delivery.pending) {
+                el.textContent = '更新中…';
+                el.classList.remove('error');
+                el.hidden = false;
+                return;
+            }
+            const error = syncState.tasks.error || syncState.delivery.error;
+            if (error) {
+                el.textContent = error;
+                el.classList.add('error');
+                el.hidden = false;
+            } else {
+                el.hidden = true;
+            }
+        }
+
         function fetchAppData(uid, displayName) {
             return apiFetch(`${API_URL}?action=getData&uid=${encodeURIComponent(uid)}`
                 + `&displayName=${encodeURIComponent(displayName || 'LINEユーザー')}`);
         }
 
         async function initializeApp() {
+            // catch節でも参照するため、tryの外で宣言しておく
+            let cachedTasks = null;
             try {
                 // 覚えているIDがあれば、LINEの確認を待たずに取得を先に走らせる
                 const cachedUid = readCached(UID_KEY);
                 const earlyFetch = cachedUid
                     ? fetchAppData(cachedUid, readCached(NAME_KEY)).catch(() => null)
                     : null;
+
+                // ★配達も同時に投げる（今回追加）。以前は配達タブを押した瞬間に
+                // 取得を始めていたので、押してから丸が回っていた。ここで先に
+                // 走らせておけば、押したときにはもう手元にある。
+                // awaitしない＝やること側の表示をこれで待たせない
+                loadDeliveries();
+
+                // ★前回の「やること」データが端末にあれば、認証より先に描いてしまう
+                // （stale-while-revalidate）。やること側の表示を遅らせてはいけないため、
+                // この描画は liff.init などの完了を待たない
+                cachedTasks = readJsonCache(TASKS_CACHE_KEY);
+                if (cachedTasks) {
+                    onDataFetched(cachedTasks);
+                    syncStart('tasks');
+                }
 
                 await liff.init({ liffId: LIFF_ID });
                 if (!liff.isLoggedIn()) {
@@ -802,15 +904,27 @@
                     data = await earlyFetch;   // 先に走らせたぶんが使える
                 }
                 if (!data) {
-                    document.getElementById('loadingText').textContent = 'データ取得中...';
+                    // キャッシュを既に描けているときは、丸のテキストを上書きしない
+                    // （キャッシュ表示中は丸自体が出ていないため）
+                    if (!cachedTasks) document.getElementById('loadingText').textContent = 'データ取得中...';
                     data = await fetchAppData(profile.userId, profile.displayName);
                 }
+                writeJsonCache(TASKS_CACHE_KEY, data);
                 onDataFetched(data);
+                if (cachedTasks) syncEnd('tasks', null);
             } catch (err) {
-                document.getElementById('loader').innerHTML =
-                    `<div style="text-align:center; padding: 20px;">
-                        <span style="color:var(--danger)">初期化エラー: ${err.message}</span>
-                     </div>`;
+                // キャッシュを先に描けていれば、それは消さず「更新中」を失敗表示に切り替えるだけにする
+                if (cachedTasks) {
+                    syncEnd('tasks', '最新の取得に失敗（表示は前回のもの）');
+                    return;
+                }
+                const loaderEl = document.getElementById('loader');
+                if (loaderEl) {
+                    loaderEl.innerHTML =
+                        `<div style="text-align:center; padding: 20px;">
+                            <span style="color:var(--danger)">初期化エラー: ${err.message}</span>
+                         </div>`;
+                }
             }
         }
 
@@ -874,7 +988,10 @@
             renderTabs();
 
             if (mode === 'delivery') {
-                // 初回だけ取りに行く。以降は操作のたびに手元の状態を更新する
+                // ★起動時（initializeApp）で既に取得を走らせているので、
+                // ここに来た時点でたいてい手元にある。まだ届いていなければ
+                // loadDeliveries()を呼ぶが、起動時の取得がまだ進行中ならそれに乗るだけで
+                // 二重には取りに行かない（deliveryFetchInFlightで防いでいる）
                 if (!deliveryData) await loadDeliveries();
                 else renderDelivery();
             }
@@ -894,21 +1011,65 @@
         // 速度について：
         //   取得はサーバーへ1回だけ。タブの切替はすべて手元のデータを絞るだけで、
         //   通信しない。日付を変えたときだけ取り直す。
+        //   ★今回追加：取得自体もinitializeApp()の中で起動時に並行して走らせておく
+        //   （配達タブを開いてから取りに行かない）うえ、日付ごとにlocalStorageへ
+        //   キャッシュし、次に同じ日を開いたときは前回の内容を先に見せてから
+        //   裏で取り直す（doLoadDeliveries参照）。
         // ============================================================
 
-        async function loadDeliveries() {
+        // 同じ日付の取得が既に進行中なら、新しく投げ直さずそれに乗る。
+        // 起動時のloadDeliveries()呼び出しと、配達タブを開いたときの呼び出しが
+        // 重なっても、通信が二重に走らないようにするため
+        const deliveryFetchInFlight = {};
+        function loadDeliveries() {
+            const date = deliveryDate;
+            if (deliveryFetchInFlight[date]) return deliveryFetchInFlight[date];
+            const p = doLoadDeliveries(date).finally(() => { delete deliveryFetchInFlight[date]; });
+            deliveryFetchInFlight[date] = p;
+            return p;
+        }
+
+        /**
+         * ★stale-while-revalidate対応（今回追加）。
+         * この日付のキャッシュが端末にあれば、まずそれを描いてから裏で取り直す
+         * （このとき出す「更新中…」は控えめな表示で、画面を覆う読み込み中は出さない）。
+         * キャッシュが無い／古すぎるときは、これまで通り「読み込み中...」を出してから取得する。
+         */
+        async function doLoadDeliveries(date) {
             const container = document.getElementById('deliveryContainer');
-            container.innerHTML = `<div class="dl-empty">読み込み中...</div>`;
-            try {
-                deliveryData = await apiFetch(
-                    `${API_URL}?action=getDeliveries&date=${encodeURIComponent(deliveryDate)}`);
+            const cached = readJsonCache(deliveryCacheKey(date));
+
+            if (cached) {
+                deliveryData = cached;
                 renderTabs();
                 renderDelivery();
+                syncStart('delivery');
+            } else {
+                container.innerHTML = `<div class="dl-empty">読み込み中...</div>`;
+            }
+
+            try {
+                const fresh = await apiFetch(
+                    `${API_URL}?action=getDeliveries&date=${encodeURIComponent(date)}`);
+                writeJsonCache(deliveryCacheKey(date), fresh);
+                // 取得中に日付タブが切り替えられている可能性があるので、
+                // まだ同じ日付を見ているときだけ画面に反映する（違う日を誤って出さない）
+                if (date === deliveryDate) {
+                    deliveryData = fresh;
+                    renderTabs();
+                    renderDelivery();
+                }
+                if (cached) syncEnd('delivery', null);
             } catch (e) {
-                container.innerHTML =
-                    `<div class="dl-empty" style="color:var(--danger)">
-                        配達データの取得に失敗しました: ${esc(e.message)}
-                     </div>`;
+                if (cached) {
+                    // キャッシュ表示はそのまま残し、失敗したことだけ控えめに伝える
+                    syncEnd('delivery', '最新の取得に失敗（表示は前回のもの）');
+                } else if (date === deliveryDate) {
+                    container.innerHTML =
+                        `<div class="dl-empty" style="color:var(--danger)">
+                            配達データの取得に失敗しました: ${esc(e.message)}
+                         </div>`;
+                }
             }
         }
 
