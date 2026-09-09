@@ -133,6 +133,35 @@
             color: var(--text-main);
             outline: none;
         }
+        /* ★今回新規追加：マスタ更新ボタン。目立たせない場所・見た目にする（日付バーの端） */
+        .btn-refresh-masters {
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            background: transparent;
+            border: 1px dashed #d1d5db;
+            padding: 5px 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .btn-refresh-masters:active { background: rgba(0,0,0,0.05); }
+        /* 一瞬出て消える通知。全画面を覆う読み込み中とは別物 */
+        .toast {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            transform: translateX(-50%);
+            background: rgba(31, 41, 55, 0.92);
+            color: #fff;
+            padding: 10px 18px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            z-index: 300;
+            box-shadow: var(--shadow);
+        }
         .area-heading {
             font-size: 0.8rem;
             font-weight: 700;
@@ -945,12 +974,47 @@
                             <span style="font-size:0.78rem; color:var(--text-muted); font-weight:600;">
                                 日付を入れると各方面に移ります
                             </span>
+                            ${masterRefreshButtonHtml()}
                         </div>`;
             }
             return `<div class="delivery-bar">
                         <input type="date" class="delivery-date" value="${deliveryDate}"
                                onchange="changeDeliveryDate(this.value)">
+                        ${masterRefreshButtonHtml()}
                     </div>`;
+        }
+
+        /** ★今回新規追加：目立たない「マスタ更新」ボタン。日付バーの端に置く */
+        function masterRefreshButtonHtml() {
+            return `<button type="button" class="btn-refresh-masters"
+                             onclick="refreshMasters()">⟳ マスタ更新</button>`;
+        }
+
+        /**
+         * 売り先・商品マスタはサーバー側で6時間キャッシュしている（HANDOVER参照）。
+         * スプレッドシートを手で直したときそのままでは最長6時間画面に出ないため、
+         * キャッシュを捨てて丸ごと取り直すボタンを用意する。
+         * refreshMastersはgetDeliveriesと同じ形で返ってくるので、置き換えるだけでよい。
+         */
+        async function refreshMasters() {
+            try {
+                deliveryData = await apiFetch(
+                    `${API_URL}?action=refreshMasters&date=${encodeURIComponent(deliveryDate)}`);
+                renderTabs();
+                renderDelivery();
+                showToast('マスタを更新しました');
+            } catch (e) {
+                alert('マスタの更新に失敗しました: ' + e.message);
+            }
+        }
+
+        /** 一瞬だけ出して消える控えめな通知。全画面を覆う類のものは出さない */
+        function showToast(message) {
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.textContent = message;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 2000);
         }
 
         /** 1つの方面を描く。売り先ごとのカードに、準備と配達のチェックが並ぶ */
