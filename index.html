@@ -642,6 +642,7 @@
             color: var(--text-main);
         }
         .order-btn:active { background: rgba(0,0,0,0.12); }
+        .order-btn:disabled { opacity: 0.25; cursor: default; }
         /* ★今回新規追加：薄い行（配達0件の売り先）向けの小さいボタン。細い行を太らせないため */
         .order-btn.sm { width: 22px; height: 22px; font-size: 0.75rem; flex: none; }
     </style>
@@ -773,6 +774,23 @@
         function writeJsonCache(key, data, savedAt) {
             try {
                 writeCached(key, JSON.stringify({ savedAt: savedAt || Date.now(), data: data }));
+            } catch (e) { /* 使えなくても動く */ }
+        }
+
+        /**
+         * ★配達キャッシュは日付ごとにキーが増える。放っておくと毎日1件ずつ溜まり、
+         *   端末の保存領域（数MB）を食い潰したところで保存が静かに失敗し、
+         *   「前回のデータを先に見せる」が効かなくなる（エラーも出ないので気づけない）。
+         *   画面に出すのは常に1日ぶんなので、今の日付以外は捨ててよい。
+         */
+        function pruneDeliveryCaches(keepKey) {
+            try {
+                const doomed = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && k.indexOf('farmlab_deliveries_') === 0 && k !== keepKey) doomed.push(k);
+                }
+                doomed.forEach(k => localStorage.removeItem(k));
             } catch (e) { /* 使えなくても動く */ }
         }
         /** {savedAt, data} を返す。無い／壊れている／古すぎるときは null */
@@ -1021,16 +1039,24 @@
             if (cached) {
                 try {
                     deliveryData = cached;
+                    deliveryDataDate = date;
+                    deliveryDataSavedAt = entry.savedAt;   // 取れた時刻は引き継ぐ（書き戻しで更新しない）
                     renderTabs();
                     renderDelivery();
                     syncStart('delivery');
-                    deliveryDataSavedAt = entry.savedAt;   // 取れた時刻は引き継ぐ（書き戻しで更新しない）
                     usedCache = true;
                 } catch (e) {
                     deliveryData = null;
+                    deliveryDataDate = null;
                 }
             }
             if (!usedCache) {
+                // ★この日のキャッシュが無いときは、手元に残っている前の日のデータを捨てる。
+                //   残したままだと、取得を待つあいだに描画が走ったときに前の日の配達が
+                //   新しい日のものとして表示・保存されてしまう
+                deliveryData = null;
+                deliveryDataDate = null;
+                deliveryDataSavedAt = null;
                 container.innerHTML = `<div class="dl-empty">読み込み中...</div>`;
             }
 
@@ -1039,10 +1065,12 @@
                     `${API_URL}?action=getDeliveries&date=${encodeURIComponent(date)}`);
                 deliveryDataSavedAt = Date.now();       // サーバーから取れた時刻
                 writeJsonCache(deliveryCacheKey(date), fresh, deliveryDataSavedAt);
+                pruneDeliveryCaches(deliveryCacheKey(date));   // 他の日のぶんは残さない
                 // 取得中に日付タブが切り替えられている可能性があるので、
                 // まだ同じ日付を見ているときだけ画面に反映する（違う日を誤って出さない）
                 if (date === deliveryDate) {
                     deliveryData = fresh;
+                    deliveryDataDate = date;
                     renderTabs();
                     renderDelivery();
                 }
@@ -1108,11 +1136,19 @@
          */
         let persistTimer = null;
         let deliveryDataSavedAt = null;   // 今持っている deliveryData がサーバーから取れた時刻
+        // ★今持っている deliveryData が「どの日のものか」。
+        //   deliveryDate（画面で選ばれている日）とは別に持つ。日付を変えた直後は、
+        //   新しい日の取得が終わるまで手元にあるのは前の日のデータなので、
+        //   deliveryDate をキーに書くと前の日の内容を新しい日として保存してしまう。
+        //   次に開いたときに別の日の配達が出る＝誤配に直結する。
+        let deliveryDataDate = null;
         function persistDeliveryCache() {
             if (persistTimer) clearTimeout(persistTimer);
             persistTimer = setTimeout(() => {
                 persistTimer = null;
-                if (deliveryData) writeJsonCache(deliveryCacheKey(deliveryDate), deliveryData, deliveryDataSavedAt);
+                if (deliveryData && deliveryDataDate) {
+                    writeJsonCache(deliveryCacheKey(deliveryDataDate), deliveryData, deliveryDataSavedAt);
+                }
             }, 400);
         }
 
@@ -1172,6 +1208,7 @@
                 deliveryData = await apiFetch(
                     `${API_URL}?action=refreshMasters&date=${encodeURIComponent(deliveryDate)}`);
                 deliveryDataSavedAt = Date.now();
+                deliveryDataDate = deliveryDate;
                 renderTabs();
                 renderDelivery();
                 showToast('マスタを更新しました');
@@ -1214,7 +1251,7 @@
             const without = areaDests.filter(d => !byDest[d.destId]);
 
             let html = '';
-            withItems.forEach(dest => {
+            withItems.forEach((dest, wi) => {
                 const items = byDest[dest.destId];
 
                 const allDone = items.length > 0 && items.every(r => r.deliveredQty !== null);
@@ -1222,8 +1259,8 @@
                     <div class="dest-card ${allDone ? 'done' : ''}">
                         <div class="dest-head">
                             <div style="display:flex; align-items:center; gap:8px; min-width:0;">
-                                ${orderButtonsHtml(dest.destId)}
                                 <span class="dest-name">${esc(dest.name)}</span>
+                                ${orderButtonsHtml(dest.destId, false, 'with', wi, withItems.length)}
                             </div>
                             ${allDone ? '<span class="done-badge">納品ずみ</span>'
                                 : `<button class="btn-complete-all"
@@ -1269,11 +1306,11 @@
 
             // 今日の配達が無い売り先。名前と追加欄だけの薄い行にする。
             // ★回る順の実体はここにもある（配達の有無と回る順は別物）ので、↑↓もここに置く
-            without.forEach(dest => {
+            without.forEach((dest, oi) => {
                 html += `
                     <div class="dest-idle">
-                        ${orderButtonsHtml(dest.destId, true)}
                         <span class="idle-name">${esc(dest.name)}</span>
+                        ${orderButtonsHtml(dest.destId, true, 'without', oi, without.length)}
                         <input class="addrow-input" list="productList"
                                placeholder="＋ 商品を追加"
                                onkeydown="if(event.key==='Enter'){this.blur();}"
@@ -1294,49 +1331,77 @@
             return html;
         }
 
-        /** 売り先カード／薄い行に置く↑↓ボタン。compact=trueで薄い行用の小さいボタンにする */
-        function orderButtonsHtml(destId, compact) {
+        /**
+         * 売り先の名前の後ろに置く↑↓ボタン。compact=trueで薄い行用の小さいボタンにする。
+         * ★入れ替わる相手は「画面で隣に見えているもの」なので、その並びの中での
+         *   位置（index）と件数（length）を受け取る。1件しか無い並びでは出さず、
+         *   端では押せなくする——押しても何も起きないボタンを出さないため。
+         */
+        function orderButtonsHtml(destId, compact, groupKind, index, length) {
+            if (!length || length < 2) return '';
             const cls = compact ? 'order-btn sm' : 'order-btn';
+            const up = index === 0 ? ' disabled' : '';
+            const down = index === length - 1 ? ' disabled' : '';
             return `<div class="order-buttons">
-                        <button type="button" class="${cls}" onclick="moveDestination('${esc(destId)}', 'up')">↑</button>
-                        <button type="button" class="${cls}" onclick="moveDestination('${esc(destId)}', 'down')">↓</button>
+                        <button type="button" class="${cls}"${up} onclick="moveDestination('${esc(destId)}', 'up', '${groupKind}')">↑</button>
+                        <button type="button" class="${cls}"${down} onclick="moveDestination('${esc(destId)}', 'down', '${groupKind}')">↓</button>
                     </div>`;
         }
 
-        // ★今回新規追加：売り先の回る順を↑↓で変える。
-        // やること側の並び替え（moveTask）と同じ作りにする——グループ全員に並び順を
-        // 振り直して1リクエストにまとめて送る。バラバラに並列送信すると、やること側で
-        // 実際に「並び順を変えても古いタスクだけ動かない」不具合が起きた前例があるため。
-        // 対象は「配達がある売り先（カード）」と「無い売り先（薄い行）」を区別せず、
-        // その方面の売り先すべて——回る順は配達の有無と関係ない実体だから。
-        async function moveDestination(destId, direction) {
+        /**
+         * ★売り先の回る順を↑↓で変える。
+         *
+         * 入れ替わる相手は「画面で隣に見えているもの」にする。
+         * この画面は、配達がある売り先をカード、無い売り先を下の薄い行に分けて
+         * 出しているのに、回る順は両方をまとめた1本の並び。
+         * 素直に「1本の並びの隣」と入れ替えると、カードの一番上で↑を押したときに
+         * 画面のずっと下の薄い行と入れ替わり、画面上は何も動かないように見える。
+         * ＝押しても効かないボタンになる。だから groupKind で、いま見えている
+         * どちらの並びの中で動かすのかを受け取る。
+         *
+         * 保存は方面の全売り先に 10,20,30… を振り直して1リクエストで送る。
+         * 2件だけ交換して送るのでは、シートを手で足して並び順が空欄や0のまま
+         * 重複している行があったときに、交換しても順番が変わらない。
+         */
+        async function moveDestination(destId, direction, groupKind) {
             const dest = findDest(destId);
             if (!dest) return;
 
-            const group = (deliveryData.destinations || [])
+            // 方面の全売り先（＝回る順の実体）
+            const areaDests = (deliveryData.destinations || [])
                 .filter(d => d.area === dest.area)
                 .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
 
-            const index = group.findIndex(d => d.destId === destId);
-            const swapIndex = direction === 'up' ? index - 1 : index + 1;
-            if (swapIndex < 0 || swapIndex >= group.length) return; // 端では何もしない
+            // 画面の見え方（renderArea と同じ分け方）
+            const hasItems = {};
+            (deliveryData.deliveries || []).forEach(d => { hasItems[d.destId] = true; });
+            const shown = groupKind === 'without'
+                ? areaDests.filter(d => !hasItems[d.destId])
+                : areaDests.filter(d => hasItems[d.destId]);
+
+            const at = shown.findIndex(d => d.destId === destId);
+            const to = direction === 'up' ? at - 1 : at + 1;
+            if (at === -1 || to < 0 || to >= shown.length) return; // 端では何もしない
+
+            // 画面で隣に見えている相手と、全体の並びの中での位置を入れ替える
+            const i = areaDests.indexOf(shown[at]);
+            const j = areaDests.indexOf(shown[to]);
+            [areaDests[i], areaDests[j]] = [areaDests[j], areaDests[i]];
 
             // ★失敗したときに戻すための控え。売り先IDと結び付けて持つ。
-            //   位置（配列の添字）で持つと、下の入れ替えで中身がずれたあとに
+            //   位置（配列の添字）で持つと、上の入れ替えで中身がずれたあとに
             //   同じ添字へ書き戻すことになり、戻したつもりで入れ替え後の並びを
             //   もう一度書くだけになる（＝ロールバックが効かない）
-            const prevOrders = new Map(group.map(d => [d.destId, d.sortOrder]));
-
-            [group[index], group[swapIndex]] = [group[swapIndex], group[index]];
-            group.forEach((d, idx) => { d.sortOrder = (idx + 1) * 10; });
+            const prevOrders = new Map(areaDests.map(d => [d.destId, d.sortOrder]));
+            areaDests.forEach((d, idx) => { d.sortOrder = (idx + 1) * 10; });
 
             renderDelivery();
 
-            const items = group.map(d => ({ destId: d.destId, sortOrder: d.sortOrder }));
+            const items = areaDests.map(d => ({ destId: d.destId, sortOrder: d.sortOrder }));
             try {
                 await apiFetch(`${API_URL}?action=reorderDestinations&items=${encodeURIComponent(JSON.stringify(items))}`);
             } catch (e) {
-                group.forEach(d => { d.sortOrder = prevOrders.get(d.destId); });
+                areaDests.forEach(d => { d.sortOrder = prevOrders.get(d.destId); });
                 renderDelivery();
                 alert('並び順の保存に失敗しました: ' + e.message);
             }
