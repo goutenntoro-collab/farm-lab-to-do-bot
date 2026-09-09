@@ -232,6 +232,20 @@
             cursor: pointer;
         }
         .dl-name { flex: 1; font-size: 0.9rem; font-weight: 500; color: #374151; line-height: 1.45; }
+        /* ★商品名は打ち間違えたら直せる必要がある。やること側の明細と同じで、
+           見た目は文字のまま、実体は入力欄にする（タップして初めて編集できる、
+           という新しい操作を覚えさせないため） */
+        .dl-name-input {
+            flex: 1; min-width: 0;
+            font-size: 0.9rem; font-weight: 500; color: #374151; line-height: 1.45;
+            font-family: inherit;
+            background: transparent;
+            border: none; border-bottom: 1px dashed transparent;
+            padding: 2px 0;
+            outline: none;
+        }
+        .dl-name-input:focus { border-bottom: 1px solid var(--primary); }
+        .dl-name-input.completed-text { text-decoration: line-through; color: var(--text-muted); }
         .dl-qty {
             flex: none;
             width: 62px;
@@ -281,6 +295,7 @@
         .unlink {
             font-size: 0.62rem; font-weight: 700; color: #b45309; background: #fef3c7;
             padding: 2px 6px; border-radius: 6px; margin-left: 6px; white-space: nowrap; cursor: pointer;
+            flex: none; align-self: center;
         }
 
         /* 今日の配達が無い売り先。控えめな1行で、追加だけできる */
@@ -1280,10 +1295,11 @@
                             <input type="checkbox" class="dl-check" ${delivered ? 'checked' : ''}
                                    title="納品"
                                    onchange="toggleDeliver('${esc(r.deliveryId)}', this.checked)">
-                            <span class="dl-name ${delivered ? 'completed-text' : ''}">${esc(r.productName)}${
-                                r.productId ? '' :
-                                `<span class="unlink" onclick="openLinkPicker('${esc(r.deliveryId)}')">未紐付</span>`
-                            }</span>
+                            <input type="text" class="dl-name-input ${delivered ? 'completed-text' : ''}"
+                                   value="${esc(r.productName)}" list="productList"
+                                   onchange="updateItemName('${esc(r.deliveryId)}', this.value)">
+                            ${r.productId ? '' :
+                                `<span class="unlink" onclick="openLinkPicker('${esc(r.deliveryId)}')">未紐付</span>`}
                             <input type="number" class="dl-qty" value="${shown}" inputmode="numeric"
                                    onchange="changeQty('${esc(r.deliveryId)}', this.value)">
                             <button class="btn-delete-dl" title="削除"
@@ -1550,7 +1566,9 @@
                     rows.forEach(r => {
                         html += `
                             <div class="dl-item">
-                                <span class="dl-name">${esc(r.productName)}</span>
+                                <input type="text" class="dl-name-input"
+                                       value="${esc(r.productName)}" list="productList"
+                                       onchange="updateItemName('${esc(r.deliveryId)}', this.value)">
                                 <span class="qty-plain">${r.plannedQty}</span>
                                 <button class="btn-delete-dl" title="削除"
                                         onclick="removeDelivery('${esc(r.deliveryId)}')">×</button>
@@ -1685,6 +1703,40 @@
                 row.deliveredQty = prevDelivered;
                 renderDelivery();
                 alert('数量の保存に失敗しました: ' + e.message);
+            }
+        }
+
+        /**
+         * 商品名を直す。打ち間違えたときに、行を消して入れ直すしかなかったのを直すため。
+         * ★名前を変えると商品IDとの結び付きは切れる（「未紐付」に戻る）。
+         *   名前だけ変えてIDを残すと、集計はID・納品書は名前で別のものを指すことになる。
+         *   打った名前がマスタと完全に一致していれば、サーバー側で結び付け直される。
+         */
+        async function updateItemName(deliveryId, value) {
+            const row = findDelivery(deliveryId);
+            if (!row) return;
+            const name = String(value || '').trim();
+            // 空にされたら消したいのか打ち間違いか判断できない。消すのは×ボタンの仕事
+            if (!name || name === String(row.productName).trim()) { renderDelivery(); return; }
+
+            const prevName = row.productName;
+            const prevId = row.productId;
+            row.productName = name;
+            row.productId = '';
+            renderDelivery();
+            try {
+                const res = await apiFetch(`${API_URL}?action=editDelivery`
+                    + `&deliveryId=${encodeURIComponent(deliveryId)}`
+                    + `&name=${encodeURIComponent(name)}`);
+                // マスタと完全一致していれば結び付いた状態で返ってくる
+                row.productId = res.productId;
+                row.productName = res.productName;
+                renderDelivery();
+            } catch (e) {
+                row.productName = prevName;
+                row.productId = prevId;
+                renderDelivery();
+                alert('商品名の保存に失敗しました: ' + e.message);
             }
         }
 
