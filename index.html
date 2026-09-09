@@ -236,6 +236,8 @@
             font-size: 0.86rem; color: var(--text-main); outline: none; padding: 4px 0;
         }
         .addrow-input::placeholder { color: #9ca3af; }
+        /* ★今回新規追加：「＋ この方面に売り先を追加」の未入力時の見た目 */
+        .add-dest-label { flex: 1; font-size: 0.86rem; color: #9ca3af; font-weight: 600; cursor: pointer; }
 
         .unlink {
             font-size: 0.62rem; font-weight: 700; color: #b45309; background: #fef3c7;
@@ -1033,7 +1035,49 @@
                                onblur="addItemToDest('${esc(dest.destId)}', this)">
                     </div>`;
             });
+
+            // ★今回新規追加：売り先の追加。ユーザーが今いちばん困っている要望のため、
+            //   その方面タブの一番下に置く。住所・電話・メモは入れさせない
+            //   （項目を増やすと現場で入力が止まる。あとからシートで足せる）
+            html += `
+                <div class="addrow" id="addDestRow" data-area="${esc(areaName)}">
+                    <span class="addrow-plus">＋</span>
+                    <span class="add-dest-label" onclick="showAddDestInput(this.parentElement)">
+                        この方面に売り先を追加
+                    </span>
+                </div>`;
             return html;
+        }
+
+        /** 「＋ この方面に売り先を追加」を押すと、その場が名前の入力欄に変わる */
+        function showAddDestInput(row) {
+            const area = row.dataset.area;
+            row.innerHTML = `
+                <span class="addrow-plus">＋</span>
+                <input class="addrow-input" placeholder="売り先名（入力して確定）"
+                       onkeydown="if(event.key==='Enter'){this.blur();}"
+                       onblur="submitAddDestination('${esc(area)}', this)">`;
+            row.querySelector('input').focus();
+        }
+
+        /** 売り先を1件追加する。addDestinationは同名があれば既存を返すので、二重登録は起きない */
+        async function submitAddDestination(areaName, input) {
+            const name = String(input.value || '').trim();
+            if (!name) return;
+            input.value = '';
+            try {
+                const res = await apiFetch(`${API_URL}?action=addDestination`
+                    + `&area=${encodeURIComponent(areaName)}&name=${encodeURIComponent(name)}`);
+                // 同じ方面に同名の売り先が既にあれば、サーバーは新規を作らず既存を返す。
+                // ここで無条件にpushすると画面上だけ二重に並ぶので、destIdの有無を確認する
+                if (res.destination && !findDest(res.destination.destId)) {
+                    deliveryData.destinations.push(res.destination);
+                }
+                renderTabs();
+                renderDelivery();
+            } catch (e) {
+                alert('売り先の追加に失敗しました: ' + e.message);
+            }
         }
 
         /**
