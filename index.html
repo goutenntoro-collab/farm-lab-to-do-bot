@@ -642,6 +642,8 @@
             color: var(--text-main);
         }
         .order-btn:active { background: rgba(0,0,0,0.12); }
+        /* ★今回新規追加：薄い行（配達0件の売り先）向けの小さいボタン。細い行を太らせないため */
+        .order-btn.sm { width: 22px; height: 22px; font-size: 0.75rem; flex: none; }
     </style>
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 </head>
@@ -969,7 +971,9 @@
             //   カードが出ていない売り先には商品を足せないため。
             //   ただし10軒ぶんを全部カードにすると画面が埋まるので、
             //   配達がある先はカード、無い先は下に薄い1行にして差をつける。
-            const areaDests = (deliveryData.destinations || []).filter(d => d.area === areaName);
+            // ★sortOrderで並べる。↑↓での並び替え（回る順）がそのまま画面の並びになるようにする
+            const areaDests = (deliveryData.destinations || []).filter(d => d.area === areaName)
+                .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
             const withItems = areaDests.filter(d => byDest[d.destId]);
             const without = areaDests.filter(d => !byDest[d.destId]);
 
@@ -981,7 +985,10 @@
                 html += `
                     <div class="dest-card ${allDone ? 'done' : ''}">
                         <div class="dest-head">
-                            <span class="dest-name">${esc(dest.name)}</span>
+                            <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+                                ${orderButtonsHtml(dest.destId)}
+                                <span class="dest-name">${esc(dest.name)}</span>
+                            </div>
                             ${allDone ? '<span class="done-badge">納品ずみ</span>'
                                 : `<button class="btn-complete-all"
                                      onclick="completeDestination('${esc(dest.destId)}')">全部完了</button>`}
@@ -1024,10 +1031,12 @@
                 html += '</div>';
             });
 
-            // 今日の配達が無い売り先。名前と追加欄だけの薄い行にする
+            // 今日の配達が無い売り先。名前と追加欄だけの薄い行にする。
+            // ★回る順の実体はここにもある（配達の有無と回る順は別物）ので、↑↓もここに置く
             without.forEach(dest => {
                 html += `
                     <div class="dest-idle">
+                        ${orderButtonsHtml(dest.destId, true)}
                         <span class="idle-name">${esc(dest.name)}</span>
                         <input class="addrow-input" list="productList"
                                placeholder="＋ 商品を追加"
@@ -1047,6 +1056,50 @@
                     </span>
                 </div>`;
             return html;
+        }
+
+        /** 売り先カード／薄い行に置く↑↓ボタン。compact=trueで薄い行用の小さいボタンにする */
+        function orderButtonsHtml(destId, compact) {
+            const cls = compact ? 'order-btn sm' : 'order-btn';
+            return `<div class="order-buttons">
+                        <button type="button" class="${cls}" onclick="moveDestination('${esc(destId)}', 'up')">↑</button>
+                        <button type="button" class="${cls}" onclick="moveDestination('${esc(destId)}', 'down')">↓</button>
+                    </div>`;
+        }
+
+        // ★今回新規追加：売り先の回る順を↑↓で変える。
+        // やること側の並び替え（moveTask）と同じ作りにする——グループ全員に並び順を
+        // 振り直して1リクエストにまとめて送る。バラバラに並列送信すると、やること側で
+        // 実際に「並び順を変えても古いタスクだけ動かない」不具合が起きた前例があるため。
+        // 対象は「配達がある売り先（カード）」と「無い売り先（薄い行）」を区別せず、
+        // その方面の売り先すべて——回る順は配達の有無と関係ない実体だから。
+        async function moveDestination(destId, direction) {
+            const dest = findDest(destId);
+            if (!dest) return;
+
+            const group = (deliveryData.destinations || [])
+                .filter(d => d.area === dest.area)
+                .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+            const index = group.findIndex(d => d.destId === destId);
+            const swapIndex = direction === 'up' ? index - 1 : index + 1;
+            if (swapIndex < 0 || swapIndex >= group.length) return; // 端では何もしない
+
+            const prevOrders = group.map(d => d.sortOrder);
+
+            [group[index], group[swapIndex]] = [group[swapIndex], group[index]];
+            group.forEach((d, idx) => { d.sortOrder = (idx + 1) * 10; });
+
+            renderDelivery();
+
+            const items = group.map(d => ({ destId: d.destId, sortOrder: d.sortOrder }));
+            try {
+                await apiFetch(`${API_URL}?action=reorderDestinations&items=${encodeURIComponent(JSON.stringify(items))}`);
+            } catch (e) {
+                group.forEach((d, idx) => { d.sortOrder = prevOrders[idx]; });
+                renderDelivery();
+                alert('並び順の保存に失敗しました: ' + e.message);
+            }
         }
 
         /** 「＋ この方面に売り先を追加」を押すと、その場が名前の入力欄に変わる */
