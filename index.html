@@ -390,45 +390,6 @@
         }
         .btn-delete-dl:active { color: var(--danger); }
 
-        .add-delivery {
-            background: var(--surface);
-            border: 1px dashed #9ca3af;
-            border-radius: var(--radius);
-            padding: 16px;
-            margin-top: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .add-delivery select, .add-delivery input {
-            width: 100%;
-            padding: 10px 12px;
-            border-radius: 10px;
-            border: 1px solid var(--border);
-            background: rgba(255,255,255,0.7);
-            font-size: 0.9rem;
-            font-family: inherit;
-            color: var(--text-main);
-            outline: none;
-        }
-        .add-delivery button {
-            padding: 12px;
-            border-radius: 10px;
-            border: none;
-            background: var(--primary);
-            color: #fff;
-            font-weight: 700;
-            font-size: 0.95rem;
-            font-family: inherit;
-            cursor: pointer;
-        }
-        .add-delivery button:disabled { background: #9ca3af; }
-        .add-delivery-title {
-            font-size: 0.85rem; font-weight: 700; color: var(--text-muted);
-            cursor: pointer; list-style: none;
-        }
-        .add-delivery-title::-webkit-details-marker { display: none; }
-        .add-delivery > select, .add-delivery > input, .add-delivery > button { margin-top: 10px; }
         .dl-empty { text-align: center; padding: 50px 20px; color: var(--text-muted); font-weight: 500; }
         .task-card {
             background: var(--surface);
@@ -805,17 +766,24 @@
         const TASKS_CACHE_KEY = 'farmlab_tasks';
         function deliveryCacheKey(date) { return `farmlab_deliveries_${date}`; } // 日付を含める。他日のデータを出さないため
 
-        function writeJsonCache(key, data) {
-            try { writeCached(key, JSON.stringify({ savedAt: Date.now(), data: data })); } catch (e) { /* 使えなくても動く */ }
+        // savedAt を明示して渡せるようにしてある。
+        // ★これは「いつサーバーから取れた内容か」を表す時刻で、「いつ書いたか」ではない。
+        //   画面での変更を書き戻すたびに今の時刻で上書きすると、通信できない日が続いても
+        //   キャッシュがいつまでも新しい扱いのままになり、24時間で捨てる仕掛けが効かなくなる。
+        function writeJsonCache(key, data, savedAt) {
+            try {
+                writeCached(key, JSON.stringify({ savedAt: savedAt || Date.now(), data: data }));
+            } catch (e) { /* 使えなくても動く */ }
         }
-        function readJsonCache(key) {
+        /** {savedAt, data} を返す。無い／壊れている／古すぎるときは null */
+        function readJsonCacheEntry(key) {
             const raw = readCached(key);
             if (!raw) return null;
             try {
                 const parsed = JSON.parse(raw);
                 if (!parsed || typeof parsed.savedAt !== 'number') return null;
                 if (Date.now() - parsed.savedAt > CACHE_MAX_AGE_MS) return null; // 古すぎるので使わない
-                return parsed.data;
+                return parsed;
             } catch (e) {
                 return null;
             }
@@ -844,15 +812,19 @@
         function renderSyncBanner() {
             const el = document.getElementById('syncBanner');
             if (!el) return;
-            if (syncState.tasks.pending || syncState.delivery.pending) {
+            // ★今見ている側の状態だけ出す（レビュー時に修正）。
+            //   両方を混ぜると、やること画面を見ているのに配達の取得失敗が出て、
+            //   どちらの話か分からなくなる。起動直後は配達も裏で取りに行くので、
+            //   これを分けないと毎回やること画面に「更新中…」が出ることになる
+            const cur = syncState[currentMode === 'delivery' ? 'delivery' : 'tasks'];
+            if (cur.pending) {
                 el.textContent = '更新中…';
                 el.classList.remove('error');
                 el.hidden = false;
                 return;
             }
-            const error = syncState.tasks.error || syncState.delivery.error;
-            if (error) {
-                el.textContent = error;
+            if (cur.error) {
+                el.textContent = cur.error;
                 el.classList.add('error');
                 el.hidden = false;
             } else {
@@ -879,12 +851,13 @@
                 // 取得を始めていたので、押してから丸が回っていた。ここで先に
                 // 走らせておけば、押したときにはもう手元にある。
                 // awaitしない＝やること側の表示をこれで待たせない
-                loadDeliveries();
+                loadDeliveries().catch(() => { /* 配達の失敗でやること側を止めない */ });
 
                 // ★前回の「やること」データが端末にあれば、認証より先に描いてしまう
                 // （stale-while-revalidate）。やること側の表示を遅らせてはいけないため、
                 // この描画は liff.init などの完了を待たない
-                cachedTasks = readJsonCache(TASKS_CACHE_KEY);
+                const tasksEntry = readJsonCacheEntry(TASKS_CACHE_KEY);
+                cachedTasks = tasksEntry && tasksEntry.data;
                 if (cachedTasks) {
                     onDataFetched(cachedTasks);
                     syncStart('tasks');
@@ -986,6 +959,7 @@
             document.getElementById('tasksContainer').hidden = (mode !== 'tasks');
             document.getElementById('deliveryContainer').hidden = (mode !== 'delivery');
             renderTabs();
+            renderSyncBanner();   // ★見ている側が変わったので帯を出し直す
 
             if (mode === 'delivery') {
                 // ★起動時（initializeApp）で既に取得を走らせているので、
@@ -1037,21 +1011,34 @@
          */
         async function doLoadDeliveries(date) {
             const container = document.getElementById('deliveryContainer');
-            const cached = readJsonCache(deliveryCacheKey(date));
+            const entry = readJsonCacheEntry(deliveryCacheKey(date));
+            const cached = entry && entry.data;
 
+            // ★キャッシュは前のバージョンの画面が書いたものかもしれない。
+            //   形が合わずに描画で落ちても起動が止まらないよう、ここだけ囲っておく
+            //   （落ちたらキャッシュは無かったことにして、普通に取りに行く）
+            let usedCache = false;
             if (cached) {
-                deliveryData = cached;
-                renderTabs();
-                renderDelivery();
-                syncStart('delivery');
-            } else {
+                try {
+                    deliveryData = cached;
+                    renderTabs();
+                    renderDelivery();
+                    syncStart('delivery');
+                    deliveryDataSavedAt = entry.savedAt;   // 取れた時刻は引き継ぐ（書き戻しで更新しない）
+                    usedCache = true;
+                } catch (e) {
+                    deliveryData = null;
+                }
+            }
+            if (!usedCache) {
                 container.innerHTML = `<div class="dl-empty">読み込み中...</div>`;
             }
 
             try {
                 const fresh = await apiFetch(
                     `${API_URL}?action=getDeliveries&date=${encodeURIComponent(date)}`);
-                writeJsonCache(deliveryCacheKey(date), fresh);
+                deliveryDataSavedAt = Date.now();       // サーバーから取れた時刻
+                writeJsonCache(deliveryCacheKey(date), fresh, deliveryDataSavedAt);
                 // 取得中に日付タブが切り替えられている可能性があるので、
                 // まだ同じ日付を見ているときだけ画面に反映する（違う日を誤って出さない）
                 if (date === deliveryDate) {
@@ -1059,9 +1046,9 @@
                     renderTabs();
                     renderDelivery();
                 }
-                if (cached) syncEnd('delivery', null);
+                if (usedCache) syncEnd('delivery', null);
             } catch (e) {
-                if (cached) {
+                if (usedCache) {
                     // キャッシュ表示はそのまま残し、失敗したことだけ控えめに伝える
                     syncEnd('delivery', '最新の取得に失敗（表示は前回のもの）');
                 } else if (date === deliveryDate) {
@@ -1107,8 +1094,31 @@
             }).length;
         }
 
+        /**
+         * ★今回追加（レビュー時）：手元の deliveryData を端末のキャッシュに書き戻す。
+         *
+         * チェックを付けた・配達を足した、といった変更は deliveryData を直接
+         * 書き換えているが、これを保存し直さないと、次に開いたときに
+         * 「前回のデータ」として出てくるのが変更前の内容になる。
+         * 納品ずみのチェックが全部外れて見え、押し直して二重に記録する、
+         * という一番やってはいけない事故につながる。
+         *
+         * renderDelivery() は連打やタブ切替でも呼ばれるので、
+         * 毎回JSON化すると重い。少し待ってからまとめて1回だけ書く。
+         */
+        let persistTimer = null;
+        let deliveryDataSavedAt = null;   // 今持っている deliveryData がサーバーから取れた時刻
+        function persistDeliveryCache() {
+            if (persistTimer) clearTimeout(persistTimer);
+            persistTimer = setTimeout(() => {
+                persistTimer = null;
+                if (deliveryData) writeJsonCache(deliveryCacheKey(deliveryDate), deliveryData, deliveryDataSavedAt);
+            }, 400);
+        }
+
         function renderDelivery() {
             if (!deliveryData) return;
+            persistDeliveryCache();
             const container = document.getElementById('deliveryContainer');
             const tabs = deliveryAreaTabs();
 
@@ -1161,6 +1171,7 @@
             try {
                 deliveryData = await apiFetch(
                     `${API_URL}?action=refreshMasters&date=${encodeURIComponent(deliveryDate)}`);
+                deliveryDataSavedAt = Date.now();
                 renderTabs();
                 renderDelivery();
                 showToast('マスタを更新しました');
@@ -1310,7 +1321,11 @@
             const swapIndex = direction === 'up' ? index - 1 : index + 1;
             if (swapIndex < 0 || swapIndex >= group.length) return; // 端では何もしない
 
-            const prevOrders = group.map(d => d.sortOrder);
+            // ★失敗したときに戻すための控え。売り先IDと結び付けて持つ。
+            //   位置（配列の添字）で持つと、下の入れ替えで中身がずれたあとに
+            //   同じ添字へ書き戻すことになり、戻したつもりで入れ替え後の並びを
+            //   もう一度書くだけになる（＝ロールバックが効かない）
+            const prevOrders = new Map(group.map(d => [d.destId, d.sortOrder]));
 
             [group[index], group[swapIndex]] = [group[swapIndex], group[index]];
             group.forEach((d, idx) => { d.sortOrder = (idx + 1) * 10; });
@@ -1321,7 +1336,7 @@
             try {
                 await apiFetch(`${API_URL}?action=reorderDestinations&items=${encodeURIComponent(JSON.stringify(items))}`);
             } catch (e) {
-                group.forEach((d, idx) => { d.sortOrder = prevOrders[idx]; });
+                group.forEach(d => { d.sortOrder = prevOrders.get(d.destId); });
                 renderDelivery();
                 alert('並び順の保存に失敗しました: ' + e.message);
             }
@@ -1341,7 +1356,8 @@
         /** 売り先を1件追加する。addDestinationは同名があれば既存を返すので、二重登録は起きない */
         async function submitAddDestination(areaName, input) {
             const name = String(input.value || '').trim();
-            if (!name) return;
+            // 何も入れずに画面の他をタップしたときは、入力欄のままにせず元の見た目に戻す
+            if (!name) { renderDelivery(); return; }
             input.value = '';
             try {
                 const res = await apiFetch(`${API_URL}?action=addDestination`
@@ -1625,31 +1641,6 @@
             }
         }
 
-        async function submitNewDelivery(btn) {
-            const destId = document.getElementById('newDeliveryDest').value;
-            const productId = document.getElementById('newDeliveryProduct').value;
-            const qty = Number(document.getElementById('newDeliveryQty').value);
-
-            if (!destId || !productId) { alert('売り先と商品を選んでください'); return; }
-            if (!isFinite(qty) || qty <= 0) { alert('数量を入れてください'); return; }
-
-            const date = (deliveryPhase === '未定') ? '' : deliveryDate;
-            btn.disabled = true;
-            btn.textContent = '追加中...';
-            try {
-                // ★修正：以前は「配達IDが要るので」全件取り直していたが、
-                // addDeliveryが配達ID込みの行をそのまま返すようになったので不要になった
-                const res = await apiFetch(`${API_URL}?action=addDelivery&destId=${encodeURIComponent(destId)}`
-                    + `&productId=${encodeURIComponent(productId)}&qty=${qty}&date=${date}`);
-                addDeliveryToLocal(res.delivery);
-                btn.disabled = false;
-                btn.textContent = 'この日の配達に追加';
-            } catch (e) {
-                btn.disabled = false;
-                btn.textContent = 'この日の配達に追加';
-                alert('追加に失敗しました: ' + e.message);
-            }
-        }
 
         function getPriorityScore(p) {
             return p === '今日中' ? 3 : (p === '時間あるとき' ? 1 : 2);
@@ -1831,8 +1822,12 @@
             const swapIndex = direction === 'up' ? index - 1 : index + 1;
             if (swapIndex < 0 || swapIndex >= group.length) return; // 端では何もしない
 
-            // 元の値を保存しておく(失敗時に戻すため)
-            const prevOrders = group.map(t => t.sortOrder);
+            // 元の値を保存しておく(失敗時に戻すため)。
+            // ★タスクIDと結び付けて持つ。位置（配列の添字）で持つと、下の入れ替えで
+            //   中身がずれたあとに同じ添字へ書き戻すことになり、戻したつもりで
+            //   入れ替え後の並びをもう一度書くだけになっていた（保存に失敗しても
+            //   画面が元に戻らず、次に開くまで嘘の並びが出たままになる）
+            const prevOrders = new Map(group.map(t => [t.taskId, t.sortOrder]));
 
             // 配列内の並び順そのものを入れ替える（数字の交換ではなく位置の交換）
             [group[index], group[swapIndex]] = [group[swapIndex], group[index]];
@@ -1849,7 +1844,7 @@
             try {
                 await apiFetch(`${API_URL}?action=reorder&items=${encodeURIComponent(JSON.stringify(items))}`);
             } catch (e) {
-                group.forEach((t, idx) => { t.sortOrder = prevOrders[idx]; });
+                group.forEach(t => { t.sortOrder = prevOrders.get(t.taskId); });
                 renderTasks();
                 alert('並び順の保存に失敗しました: ' + e.message);
             }
