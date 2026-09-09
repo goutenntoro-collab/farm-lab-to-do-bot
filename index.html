@@ -1057,14 +1057,25 @@
 
             const date = (deliveryPhase === '未定') ? '' : deliveryDate;
             try {
-                await apiFetch(`${API_URL}?action=addDelivery&destId=${encodeURIComponent(destId)}`
+                // ★修正：addDeliveryはできた行をそのまま返すようになったので、
+                // 全件取り直さず手元に足すだけにする（往復を1回減らす）
+                const res = await apiFetch(`${API_URL}?action=addDelivery&destId=${encodeURIComponent(destId)}`
                     + `&productId=${encodeURIComponent(hit ? hit.productId : '')}`
                     + `&name=${encodeURIComponent(name)}`
                     + `&qty=${qty}&date=${date}`);
-                await loadDeliveries();
+                addDeliveryToLocal(res.delivery);
             } catch (e) {
                 alert('追加に失敗しました: ' + e.message);
             }
+        }
+
+        /** addDelivery の戻り値を手元の配列に反映する。日付の有無で入れる先が違う */
+        function addDeliveryToLocal(delivery) {
+            if (!delivery) return;
+            if (delivery.date) deliveryData.deliveries.push(delivery);
+            else deliveryData.undated.push(delivery);
+            renderTabs();   // バッジの件数が変わるため
+            renderDelivery();
         }
 
         /** 手入力の商品を、あとからマスタの商品に紐付ける */
@@ -1078,10 +1089,14 @@
             if (!(idx >= 1 && idx <= list.length)) return;
 
             try {
-                await apiFetch(`${API_URL}?action=linkProduct`
+                // ★修正：linkProductも結果（紐付け後のproductId/productName）を返すので、
+                // 全件取り直さず該当行を書き換えるだけにする
+                const res = await apiFetch(`${API_URL}?action=linkProduct`
                     + `&deliveryId=${encodeURIComponent(deliveryId)}`
                     + `&productId=${encodeURIComponent(list[idx - 1].productId)}`);
-                await loadDeliveries();
+                row.productId = res.productId;
+                row.productName = res.productName;
+                renderDelivery();
             } catch (e) {
                 alert('紐付けに失敗しました: ' + e.message);
             }
@@ -1300,9 +1315,13 @@
             btn.disabled = true;
             btn.textContent = '追加中...';
             try {
-                await apiFetch(`${API_URL}?action=addDelivery&destId=${encodeURIComponent(destId)}`
+                // ★修正：以前は「配達IDが要るので」全件取り直していたが、
+                // addDeliveryが配達ID込みの行をそのまま返すようになったので不要になった
+                const res = await apiFetch(`${API_URL}?action=addDelivery&destId=${encodeURIComponent(destId)}`
                     + `&productId=${encodeURIComponent(productId)}&qty=${qty}&date=${date}`);
-                await loadDeliveries();   // 配達IDが要るのでサーバーの状態を正として取り直す
+                addDeliveryToLocal(res.delivery);
+                btn.disabled = false;
+                btn.textContent = 'この日の配達に追加';
             } catch (e) {
                 btn.disabled = false;
                 btn.textContent = 'この日の配達に追加';
