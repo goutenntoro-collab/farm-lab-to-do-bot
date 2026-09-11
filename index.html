@@ -215,41 +215,55 @@
         }
         .btn-complete-all:active { background: var(--primary); color: #fff; }
 
-        /* ★1行の幅の配分に注意。固定幅（チェック2つ・数量・×）とすき間の合計が
-           画面幅を超えると、flex:1 の商品名がゼロまで潰れて何も見えなくなる。
-           実際に READY/DELIVER の見出しを入れたとき、名前が30pxまで潰れて消えた。
-           ここの数字を触るときは、必ず実機の狭い画面で名前が読めるか確かめること。 */
+        /* ★文字に独立した行を与える（2026-09 の作り直し）。
+           横一列に並べていたときは、固定幅（チェック2つ・数量・×）とすき間の合計が
+           画面幅を超えて商品名が潰れ、実測で412px幅の端末に36pxしか残らなかった。
+           中身も <input>＝横スクロールする箱だったので、読もうとしてタップすると
+           編集になり、一目で読む手段が無かった。
+           文字は折り返す要素（textarea）にして行を丸ごと渡し、操作は下の行に置く。 */
         .dl-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
             padding: 10px 12px;
             margin-bottom: 8px;
             border-radius: 12px;
             background: rgba(255,255,255,0.5);
         }
+        .dl-item.is-done { opacity: 0.55; }
+        .dl-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 6px;
+        }
+        /* チェックに名前が付いたので、上の見出し行は要らなくなった */
+        .dl-flag {
+            display: flex; align-items: center; gap: 4px;
+            font-size: 0.6rem; font-weight: 700; letter-spacing: 0.02em;
+            color: var(--text-muted); cursor: pointer; white-space: nowrap;
+        }
         .dl-check {
             flex: none;
             width: 24px;
             height: 24px;
-            margin: 0 6px;    /* ★見出し（.col-legend span）の36pxと中心を揃えるため */
             accent-color: var(--success);
             cursor: pointer;
         }
         .dl-name { flex: 1; font-size: 0.9rem; font-weight: 500; color: #374151; line-height: 1.45; }
-        /* ★商品名は自由入力。マスタから選ばせない。
-           委託販売なので現場では雑に書ければよく、マスタの候補が106件ぶわっと
-           出てくるほうが手を止める。名寄せはLINEで会話しながら入れるときだけ行う。
-           見た目は文字のまま、実体は入力欄にする（やること側の明細と同じ作り。
-           タップして初めて編集できる、という新しい操作を覚えさせないため） */
+        /* ★商品名は自由入力で、文が入ることもある（「ある程度の種類 さんこずつ？
+           現地で選びたいとのこと」など）。マスタから選ばせない。
+           1行の input だと切れて読めないので、折り返す textarea にして、
+           中身の高さに合わせて伸ばす（autoGrow）。
+           見た目は文字のまま、実体は入力欄（やること側の明細と同じ作り）。 */
         .dl-name-input {
-            flex: 1; min-width: 0;
-            font-size: 0.9rem; font-weight: 500; color: #374151; line-height: 1.45;
+            display: block;
+            width: 100%;
+            font-size: 0.92rem; font-weight: 500; color: #374151; line-height: 1.5;
             font-family: inherit;
             background: transparent;
             border: none; border-bottom: 1px dashed transparent;
             padding: 2px 0;
             outline: none;
+            resize: none;
+            overflow: hidden;   /* 高さはJSで合わせるので、内側にスクロールバーを出さない */
         }
         .dl-name-input:focus { border-bottom: 1px solid var(--primary); }
         .dl-name-input.completed-text { text-decoration: line-through; color: var(--text-muted); }
@@ -323,15 +337,6 @@
         .bulk-date-label { font-size: 0.82rem; font-weight: 700; color: var(--primary); }
 
         /* 各商品行の「準／配」チェック。1行で両方見えるようにする */
-        .col-legend {
-            display: flex;
-            gap: 10px;
-            padding: 0 12px 4px;
-            font-size: 0.68rem;
-            font-weight: 700;
-            color: var(--text-muted);
-            letter-spacing: 0.05em;
-        }
         /* ★見出しを英語の単語にしたので、24px では文字が入らない。
            チェックボックス側にも同じ余白を付けて、列の中心を揃えている
            （.dl-check の margin と、この width を必ず対で直すこと） */
@@ -343,7 +348,6 @@
             color: #b45309;
             padding: 6px 2px 2px;
         }
-        .col-legend span { width: 36px; text-align: center; font-size: 0.52rem; letter-spacing: 0; }
         .dl-check.pick { accent-color: var(--primary); }
         .done-badge {
             font-size: 0.72rem;
@@ -1081,6 +1085,24 @@
             return areas;
         }
 
+        /**
+         * ★商品名の欄（textarea）を中身の高さに合わせる。
+         * CSS の field-sizing: content が使えれば要らないが、iOS がまだ対応して
+         * いないので自分で合わせる。いったん高さを捨ててから scrollHeight を読むのは、
+         * 文字を消したときに縮まないため。
+         */
+        function autoGrow(el) {
+            if (!el) return;
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+        }
+
+        /** 描き直した直後に、画面上の商品名の欄を全部ならす */
+        function growAllNames() {
+            const list = document.querySelectorAll('.dl-name-input');
+            for (let i = 0; i < list.length; i++) autoGrow(list[i]);
+        }
+
         /** 2026-09-10 → 9/10。「いつから待っているか」の見出しに使う */
         function shortDate(ymd) {
             const m = String(ymd || '').match(/^\d{4}-(\d{2})-(\d{2})$/);
@@ -1133,6 +1155,7 @@
             if (tabs.indexOf(deliveryPhase) === -1) deliveryPhase = tabs[0];
 
             container.innerHTML = deliveryBarHtml() + renderArea(deliveryPhase);
+            growAllNames();   // 商品名の欄を中身の高さに合わせる（切れて読めなくならないように）
         }
 
         // ★日付を選ぶ欄は無い（2026-09 の作り直し）。
@@ -1220,7 +1243,7 @@
                                 : `<button class="btn-complete-all"
                                      onclick="completeDestination('${esc(dest.destId)}')">全部完了</button>`}
                         </div>
-                        <div class="col-legend"><span>READY</span><span>DELIVER</span></div>`;
+`;
 
                 // ★並びは「まだのもの → 今日納品したもの」。やること側と同じで、
                 //   納品したものは消えずに打ち消し線で下に残り、翌日には居なくなる
@@ -1246,21 +1269,33 @@
                     const picked = r.pickedQty !== null;
                     const delivered = r.deliveredQty !== null;
                     const shown = delivered ? r.deliveredQty : (picked ? r.pickedQty : r.plannedQty);
+                    // ★文字を1行目に、操作を2行目に置く（2026-09 の作り直し）。
+                    //   横一列に並べていたときは、商品名が画面の半分も取れずに切れていた。
+                    //   しかも中身が <input>（横スクロールする箱）だったので、
+                    //   読もうとしてタップすると編集になり、一目で読む手段が無かった。
+                    //   文字に行を丸ごと渡せば、折り返して全部見える。
+                    //   チェックにも名前を付けられるので、見出しの行も要らなくなった。
                     html += `
-                        <div class="dl-item">
-                            <input type="checkbox" class="dl-check pick" ${picked ? 'checked' : ''}
-                                   title="READY（加工場で用意できた）"
-                                   onchange="togglePickOne('${esc(r.deliveryId)}', this.checked)">
-                            <input type="checkbox" class="dl-check" ${delivered ? 'checked' : ''}
-                                   title="DELIVER（持って行った）"
-                                   onchange="toggleDeliver('${esc(r.deliveryId)}', this.checked)">
-                            <input type="text" class="dl-name-input ${delivered ? 'completed-text' : ''}"
-                                   value="${esc(r.productName)}"
-                                   onchange="updateItemName('${esc(r.deliveryId)}', this.value)">
-                            <input type="number" class="dl-qty" value="${shown}" inputmode="numeric"
-                                   onchange="changeQty('${esc(r.deliveryId)}', this.value)">
-                            <button class="btn-delete-dl" title="削除"
-                                    onclick="removeDelivery('${esc(r.deliveryId)}')">×</button>
+                        <div class="dl-item ${delivered ? 'is-done' : ''}">
+                            <textarea class="dl-name-input ${delivered ? 'completed-text' : ''}" rows="1"
+                                      onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}"
+                                      oninput="autoGrow(this)"
+                                      onchange="updateItemName('${esc(r.deliveryId)}', this.value)"
+                            >${esc(r.productName)}</textarea>
+                            <div class="dl-controls">
+                                <label class="dl-flag">
+                                    <input type="checkbox" class="dl-check pick" ${picked ? 'checked' : ''}
+                                           onchange="togglePickOne('${esc(r.deliveryId)}', this.checked)">READY
+                                </label>
+                                <label class="dl-flag">
+                                    <input type="checkbox" class="dl-check" ${delivered ? 'checked' : ''}
+                                           onchange="toggleDeliver('${esc(r.deliveryId)}', this.checked)">DELIVER
+                                </label>
+                                <input type="number" class="dl-qty" value="${shown}" inputmode="numeric"
+                                       onchange="changeQty('${esc(r.deliveryId)}', this.value)">
+                                <button class="btn-delete-dl" title="削除"
+                                        onclick="removeDelivery('${esc(r.deliveryId)}')">×</button>
+                            </div>
                         </div>`;
                 });
                 // ★ToDoの「詳細を追加」と同じ流儀で、その場で商品を足せるようにする。
