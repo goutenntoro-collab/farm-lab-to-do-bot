@@ -335,7 +335,7 @@
         /* ★見出しを英語の単語にしたので、24px では文字が入らない。
            チェックボックス側にも同じ余白を付けて、列の中心を揃えている
            （.dl-check の margin と、この width を必ず対で直すこと） */
-        /* ★過ぎた予定日から繰り越した行の見出し。行の中ではなく行の外に置く
+        /* ★「いつから待っているか」の見出し。行の中ではなく行の外に置く
            （行の中に印を足すと、商品名の幅をまた削ることになるため） */
         .carry-head {
             font-size: 0.68rem;
@@ -686,15 +686,8 @@
 
         // ★配達タブの状態（今回新規追加）
         let currentMode = 'tasks';        // 'tasks' | 'delivery'
-        let deliveryPhase = '';           // 選択中の方面（'未定' もここに入る）
-        let deliveryData = null;          // { date, destinations, products, deliveries }
-        let deliveryDate = todayString();
-
-        function todayString() {
-            const d = new Date();
-            const p = n => String(n).padStart(2, '0');
-            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-        }
+        let deliveryPhase = '';           // 選択中の方面
+        let deliveryData = null;          // { today, destinations, products, deliveries }
 
         /** HTML属性やテキストに値を差し込む前に必ず通す（店名や商品名に " や < が入っても壊さない） */
         function esc(s) {
@@ -758,7 +751,8 @@
          */
         const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
         const TASKS_CACHE_KEY = 'farmlab_tasks';
-        function deliveryCacheKey(date) { return `farmlab_deliveries_${date}`; } // 日付を含める。他日のデータを出さないため
+        // ★配達は日付で絞らないので、キャッシュも1つだけ。日付ごとに増やさない
+        const DELIVERIES_CACHE_KEY = 'farmlab_deliveries';
 
         // savedAt を明示して渡せるようにしてある。
         // ★これは「いつサーバーから取れた内容か」を表す時刻で、「いつ書いたか」ではない。
@@ -770,22 +764,18 @@
             } catch (e) { /* 使えなくても動く */ }
         }
 
-        /**
-         * ★配達キャッシュは日付ごとにキーが増える。放っておくと毎日1件ずつ溜まり、
-         *   端末の保存領域（数MB）を食い潰したところで保存が静かに失敗し、
-         *   「前回のデータを先に見せる」が効かなくなる（エラーも出ないので気づけない）。
-         *   画面に出すのは常に1日ぶんなので、今の日付以外は捨ててよい。
-         */
-        function pruneDeliveryCaches(keepKey) {
+        /** 日付ごとにキーを分けていた頃の古いキャッシュを片付ける（1回きりの掃除） */
+        function pruneDeliveryCaches() {
             try {
                 const doomed = [];
                 for (let i = 0; i < localStorage.length; i++) {
                     const k = localStorage.key(i);
-                    if (k && k.indexOf('farmlab_deliveries_') === 0 && k !== keepKey) doomed.push(k);
+                    if (k && k.indexOf('farmlab_deliveries_') === 0) doomed.push(k);
                 }
                 doomed.forEach(k => localStorage.removeItem(k));
             } catch (e) { /* 使えなくても動く */ }
         }
+        pruneDeliveryCaches();
         /** {savedAt, data} を返す。無い／壊れている／古すぎるときは null */
         function readJsonCacheEntry(key) {
             const raw = readCached(key);
@@ -1008,37 +998,35 @@
         //   裏で取り直す（doLoadDeliveries参照）。
         // ============================================================
 
-        // 同じ日付の取得が既に進行中なら、新しく投げ直さずそれに乗る。
+        // 取得が既に進行中なら、新しく投げ直さずそれに乗る。
         // 起動時のloadDeliveries()呼び出しと、配達タブを開いたときの呼び出しが
         // 重なっても、通信が二重に走らないようにするため
-        const deliveryFetchInFlight = {};
+        let deliveryFetchInFlight = null;
         function loadDeliveries() {
-            const date = deliveryDate;
-            if (deliveryFetchInFlight[date]) return deliveryFetchInFlight[date];
-            const p = doLoadDeliveries(date).finally(() => { delete deliveryFetchInFlight[date]; });
-            deliveryFetchInFlight[date] = p;
-            return p;
+            if (deliveryFetchInFlight) return deliveryFetchInFlight;
+            deliveryFetchInFlight = doLoadDeliveries()
+                .finally(() => { deliveryFetchInFlight = null; });
+            return deliveryFetchInFlight;
         }
 
         /**
-         * ★stale-while-revalidate対応（今回追加）。
-         * この日付のキャッシュが端末にあれば、まずそれを描いてから裏で取り直す
-         * （このとき出す「更新中…」は控えめな表示で、画面を覆う読み込み中は出さない）。
-         * キャッシュが無い／古すぎるときは、これまで通り「読み込み中...」を出してから取得する。
+         * 前回のデータが端末にあれば、まずそれを描いてから裏で取り直す
+         * （stale-while-revalidate）。このとき出す「更新中…」は控えめな表示で、
+         * 画面を覆う読み込み中は出さない。
+         * キャッシュが無い／古すぎるときは「読み込み中...」を出してから取得する。
          */
-        async function doLoadDeliveries(date) {
+        async function doLoadDeliveries() {
             const container = document.getElementById('deliveryContainer');
-            const entry = readJsonCacheEntry(deliveryCacheKey(date));
+            const entry = readJsonCacheEntry(DELIVERIES_CACHE_KEY);
             const cached = entry && entry.data;
 
             // ★キャッシュは前のバージョンの画面が書いたものかもしれない。
             //   形が合わずに描画で落ちても起動が止まらないよう、ここだけ囲っておく
             //   （落ちたらキャッシュは無かったことにして、普通に取りに行く）
             let usedCache = false;
-            if (cached) {
+            if (cached && cached.deliveries) {
                 try {
                     deliveryData = cached;
-                    deliveryDataDate = date;
                     deliveryDataSavedAt = entry.savedAt;   // 取れた時刻は引き継ぐ（書き戻しで更新しない）
                     renderTabs();
                     renderDelivery();
@@ -1046,51 +1034,33 @@
                     usedCache = true;
                 } catch (e) {
                     deliveryData = null;
-                    deliveryDataDate = null;
                 }
             }
             if (!usedCache) {
-                // ★この日のキャッシュが無いときは、手元に残っている前の日のデータを捨てる。
-                //   残したままだと、取得を待つあいだに描画が走ったときに前の日の配達が
-                //   新しい日のものとして表示・保存されてしまう
                 deliveryData = null;
-                deliveryDataDate = null;
                 deliveryDataSavedAt = null;
                 container.innerHTML = `<div class="dl-empty">読み込み中...</div>`;
             }
 
             try {
-                const fresh = await apiFetch(
-                    `${API_URL}?action=getDeliveries&date=${encodeURIComponent(date)}`);
+                const fresh = await apiFetch(`${API_URL}?action=getDeliveries`);
                 deliveryDataSavedAt = Date.now();       // サーバーから取れた時刻
-                writeJsonCache(deliveryCacheKey(date), fresh, deliveryDataSavedAt);
-                pruneDeliveryCaches(deliveryCacheKey(date));   // 他の日のぶんは残さない
-                // 取得中に日付タブが切り替えられている可能性があるので、
-                // まだ同じ日付を見ているときだけ画面に反映する（違う日を誤って出さない）
-                if (date === deliveryDate) {
-                    deliveryData = fresh;
-                    deliveryDataDate = date;
-                    renderTabs();
-                    renderDelivery();
-                }
+                writeJsonCache(DELIVERIES_CACHE_KEY, fresh, deliveryDataSavedAt);
+                deliveryData = fresh;
+                renderTabs();
+                renderDelivery();
                 if (usedCache) syncEnd('delivery', null);
             } catch (e) {
                 if (usedCache) {
                     // キャッシュ表示はそのまま残し、失敗したことだけ控えめに伝える
                     syncEnd('delivery', '最新の取得に失敗（表示は前回のもの）');
-                } else if (date === deliveryDate) {
+                } else {
                     container.innerHTML =
                         `<div class="dl-empty" style="color:var(--danger)">
                             配達データの取得に失敗しました: ${esc(e.message)}
                          </div>`;
                 }
             }
-        }
-
-        function changeDeliveryDate(value) {
-            if (!value) return;
-            deliveryDate = value;
-            loadDeliveries();   // 日付が変わったときだけ取り直す
         }
 
         function findDest(destId) {
@@ -1108,11 +1078,10 @@
             (deliveryData.destinations || []).forEach(d => {
                 if (d.area && areas.indexOf(d.area) === -1) areas.push(d.area);
             });
-            areas.push('未定');
             return areas;
         }
 
-        /** 2026-09-10 → 9/10。繰り越しの見出しに使う */
+        /** 2026-09-10 → 9/10。「いつから待っているか」の見出しに使う */
         function shortDate(ymd) {
             const m = String(ymd || '').match(/^\d{4}-(\d{2})-(\d{2})$/);
             return m ? `${Number(m[1])}/${Number(m[2])}` : String(ymd || '');
@@ -1120,7 +1089,6 @@
 
         /** その方面の「まだ納品していない」件数。タブのバッジに出す */
         function areaPendingCount(areaName) {
-            if (areaName === '未定') return (deliveryData.undated || []).length;
             return (deliveryData.deliveries || []).filter(d => {
                 const dest = findDest(d.destId);
                 return dest && dest.area === areaName && d.deliveredQty === null;
@@ -1141,18 +1109,12 @@
          */
         let persistTimer = null;
         let deliveryDataSavedAt = null;   // 今持っている deliveryData がサーバーから取れた時刻
-        // ★今持っている deliveryData が「どの日のものか」。
-        //   deliveryDate（画面で選ばれている日）とは別に持つ。日付を変えた直後は、
-        //   新しい日の取得が終わるまで手元にあるのは前の日のデータなので、
-        //   deliveryDate をキーに書くと前の日の内容を新しい日として保存してしまう。
-        //   次に開いたときに別の日の配達が出る＝誤配に直結する。
-        let deliveryDataDate = null;
         function persistDeliveryCache() {
             if (persistTimer) clearTimeout(persistTimer);
             persistTimer = setTimeout(() => {
                 persistTimer = null;
-                if (deliveryData && deliveryDataDate) {
-                    writeJsonCache(deliveryCacheKey(deliveryDataDate), deliveryData, deliveryDataSavedAt);
+                if (deliveryData) {
+                    writeJsonCache(DELIVERIES_CACHE_KEY, deliveryData, deliveryDataSavedAt);
                 }
             }, 400);
         }
@@ -1165,38 +1127,27 @@
 
             if (tabs.length === 0) {
                 container.innerHTML = deliveryBarHtml() +
-                    `<div class="dl-empty">この日の配達はありません 🚚</div>`
-                    ;
+                    `<div class="dl-empty">売り先が登録されていません</div>`;
                 return;
             }
-            // 選ばれている方面が今日の一覧に無ければ、先頭に寄せる
             if (tabs.indexOf(deliveryPhase) === -1) deliveryPhase = tabs[0];
 
-            const body = (deliveryPhase === '未定')
-                ? renderUndatedArea()
-                : renderArea(deliveryPhase);
-
-            container.innerHTML = deliveryBarHtml() + body;
+            container.innerHTML = deliveryBarHtml() + renderArea(deliveryPhase);
         }
 
+        // ★日付を選ぶ欄は無い（2026-09 の作り直し）。
+        //   配達日は「行った日」であって先に決めるものではないので、
+        //   画面から日付を入れる場所をなくした。残るのはマスタ更新だけ。
         function deliveryBarHtml() {
-            if (deliveryPhase === '未定') {
-                return `<div class="delivery-bar">
-                            <span style="font-size:0.9rem; font-weight:700;">日付が決まっていない配達</span>
-                            <span style="font-size:0.78rem; color:var(--text-muted); font-weight:600;">
-                                日付を入れると各方面に移ります
-                            </span>
-                            ${masterRefreshButtonHtml()}
-                        </div>`;
-            }
             return `<div class="delivery-bar">
-                        <input type="date" class="delivery-date" value="${deliveryDate}"
-                               onchange="changeDeliveryDate(this.value)">
+                        <span style="font-size:0.78rem; color:var(--text-muted); font-weight:600;">
+                            まだ納品していないもの
+                        </span>
                         ${masterRefreshButtonHtml()}
                     </div>`;
         }
 
-        /** ★今回新規追加：目立たない「マスタ更新」ボタン。日付バーの端に置く */
+        /** 目立たない「マスタ更新」ボタン */
         function masterRefreshButtonHtml() {
             return `<button type="button" class="btn-refresh-masters"
                              onclick="refreshMasters()">⟳ マスタ更新</button>`;
@@ -1210,10 +1161,8 @@
          */
         async function refreshMasters() {
             try {
-                deliveryData = await apiFetch(
-                    `${API_URL}?action=refreshMasters&date=${encodeURIComponent(deliveryDate)}`);
+                deliveryData = await apiFetch(`${API_URL}?action=refreshMasters`);
                 deliveryDataSavedAt = Date.now();
-                deliveryDataDate = deliveryDate;
                 renderTabs();
                 renderDelivery();
                 showToast('マスタを更新しました');
@@ -1273,15 +1222,26 @@
                         </div>
                         <div class="col-legend"><span>READY</span><span>DELIVER</span></div>`;
 
-                // ★過ぎた予定日の未配達は、この日の画面に繰り越して出てくる。
-                //   混ざったまま並べるといつの分か分からないので、日付ごとに
-                //   小さな見出しで区切る。行の中に印を足すと、ただでさえ狭い
-                //   商品名の幅をまた削ることになるため、見出しは行の外に置く。
+                // ★並びは「まだのもの → 今日納品したもの」。やること側と同じで、
+                //   納品したものは消えずに打ち消し線で下に残り、翌日には居なくなる
+                //   （サーバーが今日納品した分までしか返さない）。押した直後に
+                //   消えると、押し間違いに気づけないため。
+                //   同じ並びの中は登録日の古い順。待たせているものが上に来る。
+                //
+                // ★登録日が今日より前のものには「9/9 から」と小さく出す。
+                //   いつから待っているか分かるようにするため。行の中に印を足すと
+                //   ただでさえ狭い商品名の幅をまた削るので、見出しは行の外に置く。
                 let shownDate = null;
-                items.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach(r => {
-                    if (r.carriedOver && r.date !== shownDate) {
-                        shownDate = r.date;
-                        html += `<div class="carry-head">${esc(shortDate(r.date))} から繰り越し</div>`;
+                items.slice().sort((a, b) => {
+                    const ad = a.deliveredQty !== null, bd = b.deliveredQty !== null;
+                    if (ad !== bd) return ad ? 1 : -1;          // 納品ずみは下へ
+                    return String(a.createdDate).localeCompare(String(b.createdDate));
+                }).forEach(r => {
+                    const waiting = r.deliveredQty === null
+                        && r.createdDate && r.createdDate < (deliveryData.today || '');
+                    if (waiting && r.createdDate !== shownDate) {
+                        shownDate = r.createdDate;
+                        html += `<div class="carry-head">${esc(shortDate(r.createdDate))} から</div>`;
                     }
                     const picked = r.pickedQty !== null;
                     const delivered = r.deliveredQty !== null;
@@ -1471,14 +1431,12 @@
             const hit = (deliveryData.products || []).find(
                 p => p.displayName === name || p.name === name);
 
-            const date = (deliveryPhase === '未定') ? '' : deliveryDate;
-
             // ★同じものが既にあるなら一度聞く。
             //   通信が落ちて「失敗」と出たあと打ち直す、という経路で同じ行が
             //   2つできたことが実際にあった（9/9のロックスター キーノ）。
             //   数を増やしたいだけなら数量を直せばよいので、同じ売り先・同じ名前・
             //   同じ予定日で未配達のものが既にあれば、意図を確かめる。
-            const dup = (date ? (deliveryData.deliveries || []) : (deliveryData.undated || []))
+            const dup = (deliveryData.deliveries || [])
                 .find(d => d.destId === destId
                         && String(d.productName).trim() === name
                         && d.deliveredQty === null);
@@ -1492,7 +1450,7 @@
                 const res = await apiFetch(`${API_URL}?action=addDelivery&destId=${encodeURIComponent(destId)}`
                     + `&productId=${encodeURIComponent(hit ? hit.productId : '')}`
                     + `&name=${encodeURIComponent(name)}`
-                    + `&qty=${qty}&date=${date}`);
+                    + `&qty=${qty}`);
                 addDeliveryToLocal(res.delivery);
             } catch (e) {
                 // ★「失敗した」と言い切らない。
@@ -1506,99 +1464,15 @@
             }
         }
 
-        /** addDelivery の戻り値を手元の配列に反映する。日付の有無で入れる先が違う */
+        /** addDelivery の戻り値を手元の配列に反映する */
         function addDeliveryToLocal(delivery) {
             if (!delivery) return;
-            if (delivery.date) deliveryData.deliveries.push(delivery);
-            else deliveryData.undated.push(delivery);
+            deliveryData.deliveries.push(delivery);
             renderTabs();   // バッジの件数が変わるため
             renderDelivery();
         }
 
 
-        /** 未定：方面ごとにまとめ、日付を入れるとその日の側へ移る */
-        function renderUndatedArea() {
-            const list = deliveryData.undated || [];
-            if (list.length === 0) return `<div class="dl-empty">日付未定の配達はありません 🎉</div>`;
-
-            const byDest = {};
-            list.forEach(d => {
-                if (!byDest[d.destId]) byDest[d.destId] = [];
-                byDest[d.destId].push(d);
-            });
-
-            const areas = [];
-            (deliveryData.destinations || []).forEach(dest => {
-                const rows = byDest[dest.destId];
-                if (!rows || rows.length === 0) return;
-                let a = areas.find(x => x.name === dest.area);
-                if (!a) { a = { name: dest.area, dests: [] }; areas.push(a); }
-                a.dests.push({ dest: dest, rows: rows });
-            });
-
-            let html = '';
-            areas.forEach(area => {
-                const areaIds = [];
-                area.dests.forEach(d => d.rows.forEach(r => areaIds.push(r.deliveryId)));
-                const key = encodeURIComponent(area.name);
-                html += `<div class="area-heading">${esc(area.name)}</div>
-                    <div class="bulk-date">
-                        <span class="bulk-date-label">この方面をまとめて</span>
-                        <input type="date" class="delivery-date" id="bulk_${key}"
-                               onchange="applyBulkDate('${key}', ${JSON.stringify(areaIds).replace(/"/g, '&quot;')})">
-                    </div>`;
-
-                area.dests.forEach(({ dest, rows }) => {
-                    const ids = rows.map(r => r.deliveryId);
-                    html += `
-                        <div class="dest-card">
-                            <div class="dest-head">
-                                <span class="dest-name">${esc(dest.name)}</span>
-                                <input type="date" class="delivery-date"
-                                       style="font-size:0.8rem; padding:5px 8px;"
-                                       onchange="applyDateToIds(${JSON.stringify(ids).replace(/"/g, '&quot;')}, this.value)">
-                            </div>`;
-                    rows.forEach(r => {
-                        html += `
-                            <div class="dl-item">
-                                <input type="text" class="dl-name-input"
-                                       value="${esc(r.productName)}"
-                                       onchange="updateItemName('${esc(r.deliveryId)}', this.value)">
-                                <span class="qty-plain">${r.plannedQty}</span>
-                                <button class="btn-delete-dl" title="削除"
-                                        onclick="removeDelivery('${esc(r.deliveryId)}')">×</button>
-                            </div>`;
-                    });
-                    html += '</div>';
-                });
-            });
-            return html;
-        }
-
-        function applyBulkDate(areaKey, ids) {
-            const input = document.getElementById('bulk_' + areaKey);
-            applyDateToIds(ids, input.value);
-        }
-
-        /** 未定に日付を入れる。入れた分は未定から消え、その日付の側に移る */
-        async function applyDateToIds(ids, date) {
-            if (!date || !ids || ids.length === 0) return;
-            try {
-                await apiFetch(`${API_URL}?action=setDeliveryDates`
-                    + `&ids=${encodeURIComponent(JSON.stringify(ids))}&date=${date}`);
-                const moved = deliveryData.undated.filter(d => ids.indexOf(d.deliveryId) !== -1);
-                deliveryData.undated = deliveryData.undated.filter(d => ids.indexOf(d.deliveryId) === -1);
-                // 表示中の日付と同じ日に移したなら、その場で一覧に足す
-                if (date === deliveryDate) {
-                    moved.forEach(m => { m.date = date; deliveryData.deliveries.push(m); });
-                }
-                renderTabs();
-                renderDelivery();
-            } catch (e) {
-                alert('日付の保存に失敗しました: ' + e.message);
-                loadDeliveries();
-            }
-        }
 
 
         /** 準備のチェック（1行ぶん） */
@@ -1619,8 +1493,7 @@
         }
 
         function findDelivery(deliveryId) {
-            return (deliveryData.deliveries || []).find(d => d.deliveryId === deliveryId)
-                || (deliveryData.undated || []).find(d => d.deliveryId === deliveryId);
+            return (deliveryData.deliveries || []).find(d => d.deliveryId === deliveryId);
         }
 
         async function toggleDeliver(deliveryId, checked) {
@@ -1653,7 +1526,7 @@
             renderDelivery();
             try {
                 await apiFetch(`${API_URL}?action=completeDestination`
-                    + `&destId=${encodeURIComponent(destId)}&date=${deliveryDate}`);
+                    + `&destId=${encodeURIComponent(destId)}`);
             } catch (e) {
                 rows.forEach((r, i) => { r.deliveredQty = prev[i]; });
                 renderDelivery();
@@ -1732,8 +1605,6 @@
                 await apiFetch(`${API_URL}?action=deleteDelivery`
                     + `&deliveryId=${encodeURIComponent(deliveryId)}`);
                 deliveryData.deliveries = (deliveryData.deliveries || [])
-                    .filter(d => d.deliveryId !== deliveryId);
-                deliveryData.undated = (deliveryData.undated || [])
                     .filter(d => d.deliveryId !== deliveryId);
                 renderTabs();
                 renderDelivery();
