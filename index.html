@@ -335,6 +335,14 @@
         /* ★見出しを英語の単語にしたので、24px では文字が入らない。
            チェックボックス側にも同じ余白を付けて、列の中心を揃えている
            （.dl-check の margin と、この width を必ず対で直すこと） */
+        /* ★過ぎた予定日から繰り越した行の見出し。行の中ではなく行の外に置く
+           （行の中に印を足すと、商品名の幅をまた削ることになるため） */
+        .carry-head {
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: #b45309;
+            padding: 6px 2px 2px;
+        }
         .col-legend span { width: 36px; text-align: center; font-size: 0.52rem; letter-spacing: 0; }
         .dl-check.pick { accent-color: var(--primary); }
         .done-badge {
@@ -1104,6 +1112,12 @@
             return areas;
         }
 
+        /** 2026-09-10 → 9/10。繰り越しの見出しに使う */
+        function shortDate(ymd) {
+            const m = String(ymd || '').match(/^\d{4}-(\d{2})-(\d{2})$/);
+            return m ? `${Number(m[1])}/${Number(m[2])}` : String(ymd || '');
+        }
+
         /** その方面の「まだ納品していない」件数。タブのバッジに出す */
         function areaPendingCount(areaName) {
             if (areaName === '未定') return (deliveryData.undated || []).length;
@@ -1259,7 +1273,16 @@
                         </div>
                         <div class="col-legend"><span>READY</span><span>DELIVER</span></div>`;
 
-                items.forEach(r => {
+                // ★過ぎた予定日の未配達は、この日の画面に繰り越して出てくる。
+                //   混ざったまま並べるといつの分か分からないので、日付ごとに
+                //   小さな見出しで区切る。行の中に印を足すと、ただでさえ狭い
+                //   商品名の幅をまた削ることになるため、見出しは行の外に置く。
+                let shownDate = null;
+                items.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach(r => {
+                    if (r.carriedOver && r.date !== shownDate) {
+                        shownDate = r.date;
+                        html += `<div class="carry-head">${esc(shortDate(r.date))} から繰り越し</div>`;
+                    }
                     const picked = r.pickedQty !== null;
                     const delivered = r.deliveredQty !== null;
                     const shown = delivered ? r.deliveredQty : (picked ? r.pickedQty : r.plannedQty);
