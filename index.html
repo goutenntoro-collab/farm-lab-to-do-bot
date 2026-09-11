@@ -1472,6 +1472,20 @@
                 p => p.displayName === name || p.name === name);
 
             const date = (deliveryPhase === '未定') ? '' : deliveryDate;
+
+            // ★同じものが既にあるなら一度聞く。
+            //   通信が落ちて「失敗」と出たあと打ち直す、という経路で同じ行が
+            //   2つできたことが実際にあった（9/9のロックスター キーノ）。
+            //   数を増やしたいだけなら数量を直せばよいので、同じ売り先・同じ名前・
+            //   同じ予定日で未配達のものが既にあれば、意図を確かめる。
+            const dup = (date ? (deliveryData.deliveries || []) : (deliveryData.undated || []))
+                .find(d => d.destId === destId
+                        && String(d.productName).trim() === name
+                        && d.deliveredQty === null);
+            if (dup && !confirm(`「${name}」は既に入っています（予定 ${dup.plannedQty}）。\nもう1行足しますか？`)) {
+                return;
+            }
+
             try {
                 // ★修正：addDeliveryはできた行をそのまま返すようになったので、
                 // 全件取り直さず手元に足すだけにする（往復を1回減らす）
@@ -1481,7 +1495,14 @@
                     + `&qty=${qty}&date=${date}`);
                 addDeliveryToLocal(res.delivery);
             } catch (e) {
-                alert('追加に失敗しました: ' + e.message);
+                // ★「失敗した」と言い切らない。
+                //   サーバーは書き込んでから応答を返すので、応答だけ通信で失われると、
+                //   入っているのに画面は失敗と言う。それを見て打ち直すと同じ行が2つできる。
+                //   成否が分からないときは、分からないと言って実際の状態を取り直す。
+                alert('追加できたかどうか確認できませんでした。\n'
+                    + '最新の状態を取り直します。入っていなければもう一度お願いします。\n（'
+                    + e.message + '）');
+                await loadDeliveries();
             }
         }
 
