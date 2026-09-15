@@ -29,7 +29,17 @@
             --radius: 16px;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        /* ★2026-09-15 修正：画面が横にずれて戻らなくなるのを止める。
+           どこか1つでも画面より横に広い箱があると、その中の入力欄をタップした
+           瞬間に端末が「見えるところまで寄せる」ために画面全体を横へ動かす。
+           body の overflow-x:hidden は見た目のスクロールバーを消すだけで、
+           この寄せは止められない（しかも横棒が出ないので指では戻せない）＝
+           配達の画面が左に寄ったまま固まる、という現象になっていた。
+           clip は「はみ出しを切るが、スクロールできる箱そのものを作らない」ので
+           寄せ自体が起きない。clip を知らない古い端末向けに hidden を先に書く。 */
+        html { overflow-x: hidden; overflow-x: clip; }
         body {
+            max-width: 100%;
             /* 端末に入っているフォントを使う（ダウンロードしない） */
             font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans',
                          'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Yu Gothic',
@@ -40,6 +50,7 @@
             display: flex;
             flex-direction: column;
             overflow-x: hidden;
+            overflow-x: clip;
             -webkit-font-smoothing: antialiased;
         }
         header {
@@ -200,8 +211,15 @@
             gap: 10px;
             margin-bottom: 10px;
         }
-        .dest-name { font-size: 1.05rem; font-weight: 700; color: #111827; }
+        /* 売り先名が長くても折り返して収める（横にはみ出させない）。
+           「全部完了」は右上のまま動かさず、名前のほうを折り返す。 */
+        .dest-name {
+            font-size: 1.05rem; font-weight: 700; color: #111827;
+            min-width: 0; overflow-wrap: anywhere;
+        }
         .btn-complete-all {
+            flex: none;
+            white-space: nowrap;
             font-size: 0.75rem;
             font-weight: 700;
             padding: 5px 12px;
@@ -233,6 +251,9 @@
             align-items: center;
             gap: 10px;
             margin-top: 6px;
+            /* 画面の狭い端末（320px級）ではREADY/DELIVER/個数が一列に収まらない。
+               はみ出させるくらいなら折り返す。 */
+            flex-wrap: wrap;
         }
         /* チェックに名前が付いたので、上の見出し行は要らなくなった */
         .dl-flag {
@@ -308,6 +329,9 @@
         .addrow-input {
             flex: 1; border: none; background: transparent; font-family: inherit;
             font-size: 0.86rem; color: var(--text-main); outline: none; padding: 4px 0;
+            /* ★入力欄は何も書かないと「20文字ぶんの幅」を最低限として抱えていて、
+               横に並ぶ相手が長いとその分だけ箱からはみ出す。0まで縮めてよいことにする。 */
+            min-width: 0;
         }
         .addrow-input::placeholder { color: #9ca3af; }
         /* ★今回新規追加：「＋ この方面に売り先を追加」の未入力時の見た目 */
@@ -315,17 +339,25 @@
 
 
         /* 今日の配達が無い売り先。控えめな1行で、追加だけできる */
+        /* ★2026-09-15 修正：売り先の名前が長いと、名前＋↑↓＋入力欄の合計が
+           画面幅を超えて横にはみ出していた（画面が左に寄って戻らない原因）。
+           入るときは今までどおり1行。入らないときだけ入力欄が下の行に落ちる。
+           細い行のままにしたいので、折り返すのは入らないときだけにしている。 */
         .dest-idle {
             display: flex; align-items: center; gap: 12px;
+            flex-wrap: wrap;
             padding: 11px 16px; margin-bottom: 8px;
             border-radius: 12px;
             background: rgba(255,255,255,0.4);
             border: 1px dashed rgba(0,0,0,0.08);
         }
         .idle-name {
-            flex: none; font-size: 0.9rem; font-weight: 600;
-            color: var(--text-muted); min-width: 5.5em;
+            flex: 0 1 auto; font-size: 0.9rem; font-weight: 600;
+            color: var(--text-muted); min-width: 5.5em; max-width: 100%;
+            overflow-wrap: anywhere;
         }
+        /* 8em ぶんが取れるなら同じ行、取れないなら次の行いっぱいに広がる */
+        .dest-idle .addrow-input { flex: 1 1 8em; }
         .add-dest { margin-top: 4px; }
         .add-dest select {
             width: 100%; padding: 12px; border-radius: var(--radius);
@@ -1102,6 +1134,26 @@
             const list = document.querySelectorAll('.dl-name-input');
             for (let i = 0; i < list.length; i++) autoGrow(list[i]);
         }
+
+        /**
+         * ★2026-09-15 追加：画面の幅が変わったら高さを計算し直す。
+         *
+         * 商品名の欄の高さは「描いたときの幅で何行になるか」で決めて貼り付けている。
+         * 幅が変われば行数も変わるのに、高さは貼り付けたままなので、
+         * 端末を横向きにした・文字サイズを変えた、といった後に長い商品名が
+         * 途中で切れて読めなくなる（欄の中は overflow:hidden なのでスクロールも出ない）。
+         *
+         * 高さだけが変わるキーボードの開閉では計算し直さない（幅を覚えておいて比べる）。
+         * 連続して飛んでくるので、少し待ってから1回だけ走らせる。
+         */
+        let lastGrowWidth = window.innerWidth;
+        let growTimer = null;
+        window.addEventListener('resize', () => {
+            if (window.innerWidth === lastGrowWidth) return;   // キーボードの開閉は無視
+            lastGrowWidth = window.innerWidth;
+            if (growTimer) clearTimeout(growTimer);
+            growTimer = setTimeout(() => { growTimer = null; growAllNames(); }, 150);
+        });
 
         /** 2026-09-10 → 9/10。「いつから待っているか」の見出しに使う */
         function shortDate(ymd) {
